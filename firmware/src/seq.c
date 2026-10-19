@@ -907,6 +907,29 @@ static uint32_t flam_at(const track_t *t, uint32_t period)
     uint32_t h = step_samples(t, period, t->fire_idx) / 2u;
     return h < FLAM_SAMPLES ? h : FLAM_SAMPLES;
 }
+/* (SLIDE HOLD, fork of Skiff 1.3.3) On a POLY track, a SLIDE step's notes that the next step plays again keep
+ * sounding through it: no note-on, so no new attack, pluck or envelope restart. Before this, seq_step called
+ * trk_note_on for every note of the step slid into, and voice_alloc / voice_start restarted each held note's
+ * envelopes from their current level (a soft re-attack). Now a chord can hold while another note on the same track
+ * comes and goes: SLIDE on C E G, then C E (G released, C and E carried), then C E G (G struck again, C and E
+ * still carried). A note retriggers when it returns after a step without it; a carried note keeps its first
+ * velocity. Only for a note this sequencer started (t->seq_notes) whose voice still has its gate (not stolen,
+ * not released): anything else plays as before. MONO / LEGATO / UNISON keep their own slide (voice.c mono_play),
+ * and an engine of hits (DRUM, DRUM-X) always strikes */
+static int seq_carries(const track_t *t, uint32_t note)
+{
+    uint32_t i;
+    if (trk_vmode(t) != V_POLY || ENGINES[t->engine]->oneshot)
+        return 0;
+    for (i = 0; i < t->seq_n && t->seq_notes[i] != note; i++)
+        ;
+    if (i == t->seq_n)
+        return 0;
+    for (i = 0; i < NVOICE; i++)
+        if (t->v[i].active && t->v[i].gate && t->v[i].note == note)
+            return 1;
+    return 0;
+}
 static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint32_t period, uint32_t skip)
 {
     uint32_t i, j, gate = period * (uint32_t)t->p[P_SGATE] / 128u;
@@ -980,7 +1003,7 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
     if (!slide_in)
         seq_release(t);
     for (i = 0; i < m; i++)
-        if (!((sk >> i) & 1u))
+        if (!((sk >> i) & 1u) && !(slide_in && seq_carries(t, nn[i])))   /* (SLIDE HOLD) carried: no new attack */
             trk_note_on(t, nn[i], vv[i]);
     if (slide_in)                                   /* release what is not held over */
         for (i = 0; i < t->seq_n; i++) {

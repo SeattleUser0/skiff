@@ -1,0 +1,35 @@
+# Builds this fork's installable package (skiff-X.Y.Z-suffix.fwsc) on GitHub, with the community's shared FM-1 builder
+# (zvenson/fm1-build, pinned at its reviewed tag v1): JieLi's Linux toolchain and the AC79 SDK, then this repository's
+# own ./build.sh --release.
+#
+#   Push a tag v1.3.3-hold (X.Y.Z-suffix, one digit each, the suffix letters and digits only: tools/build.py --release)
+#   -> a GitHub Release of that tag with the .fwsc and SHA256SUMS attached.
+#   Actions > release > Run workflow -> the same build as a downloadable artifact ("packages"), version 1.3.3-dev.
+#
+# The tests (tests/run_tests.sh) run after the build and are reported, but do not hold the package back.
+#
+# Rev 1 (fork of Skiff 1.3.3, SLIDE HOLD): first version.
+name: release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+jobs:
+  build:
+    uses: zvenson/fm1-build/.github/workflows/build.yml@v1
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    with:
+      sdk: true
+      tests-block: false
+      build: |
+        set -euo pipefail
+        sudo apt-get update
+        sudo apt-get install -y libharfbuzz-dev libfribidi-dev libraqm-dev
+        python3 -m pip install fonttools numpy
+        if [ "$GITHUB_REF_TYPE" = tag ]; then v="${GITHUB_REF_NAME#v}"; else v=1.3.3-dev; fi
+        ./build.sh --release "$v"
+      packages: build/skiff-*.fwsc
+      test: sh tests/run_tests.sh
