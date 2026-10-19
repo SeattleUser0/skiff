@@ -43,7 +43,7 @@ GitHub builds the package (.github/workflows/release.yml, using the shared
 [fm1-build](https://github.com/zvenson/fm1-build) workflow):
 
 - Push a tag such as `v1.3.3-hold`. The Release for that tag gets the `.fwsc`.
-- Or Actions > release > Run workflow. The `.fwsc` is in the run's "packages" artifact.
+- Or push to main, or use Actions > release > Run workflow. The `.fwsc` is in the run's "packages" artifact.
 
 Skiff's web installer only installs Skiff's own published package, so install this one from a terminal on the Mac:
 

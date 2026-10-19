@@ -4,14 +4,18 @@
 #
 #   Push a tag v1.3.3-hold (X.Y.Z-suffix, one digit each, the suffix letters and digits only: tools/build.py --release)
 #   -> a GitHub Release of that tag with the .fwsc and SHA256SUMS attached.
-#   Actions > release > Run workflow -> the same build as a downloadable artifact ("packages"), version 1.3.3-dev.
+#   A push to main, or Actions > release > Run workflow -> the same build as a downloadable artifact ("packages"),
+#   version 1.3.3-hold.
 #
 # The tests (tests/run_tests.sh) run after the build and are reported, but do not hold the package back.
 #
 # Rev 1 (fork of Skiff 1.3.3, SLIDE HOLD): first version.
+# Rev 2: also builds on a push to main (tag pushes from the Claude session were refused); non-tag builds are
+#        version 1.3.3-hold, not 1.3.3-dev.
 name: release
 on:
   push:
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
 jobs:
@@ -29,7 +33,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libharfbuzz-dev libfribidi-dev libraqm-dev
         python3 -m pip install fonttools numpy
-        if [ "$GITHUB_REF_TYPE" = tag ]; then v="${GITHUB_REF_NAME#v}"; else v=1.3.3-dev; fi
+        if [ "$GITHUB_REF_TYPE" = tag ]; then v="${GITHUB_REF_NAME#v}"; else v=1.3.3-hold; fi
         ./build.sh --release "$v"
       packages: build/skiff-*.fwsc
       test: sh tests/run_tests.sh
