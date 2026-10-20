@@ -125,12 +125,14 @@ static int bk_head(uint32_t i, bk_hdr_t *h)        /* sector i's commit record v
     return h->magic == BK_MAGIC && h->chunk < BK_CHUNKS && (h->len == BK_LEN || h->len == BK_LEN1) &&
            h->hsum == proj_hash(h, sizeof *h - 4u) ? 0 : -1;
 }
-/* (PERNOTE) the 4 records of an earlier build's chunk (in b: 888 bytes apart) moved 960 apart, their planes 0 */
+/* (PERNOTE) the 4 records of an earlier build's chunk (in b: 888 bytes apart) moved 960 apart, their planes 0. (rev 3)
+ * Byte by byte, from the end: the firmware's libc has no memmove, and each record moves up over itself */
 static void bk_spread(uint8_t *b)
 {
-    uint32_t r;
+    uint32_t r, i;
     for (r = BK_PER; r-- > 0;) {
-        memmove(b + r * BK_REC, b + r * BK_REC1, BK_REC1);
+        for (i = BK_REC1; i-- > 0;)
+            b[r * BK_REC + i] = b[r * BK_REC1 + i];
         memset(b + r * BK_REC + BK_REC1, 0, BK_REC - BK_REC1);
     }
 }
@@ -212,9 +214,10 @@ static uint32_t bk_free(void)                      /* a sector holding no chunk'
  * none is version 3); bk_spread undoes it */
 static void bk_squeeze(uint8_t *b)
 {
-    uint32_t r;
-    for (r = 1; r < BK_PER; r++)
-        memmove(b + r * BK_REC1, b + r * BK_REC, BK_REC1);
+    uint32_t r, i;
+    for (r = 1; r < BK_PER; r++)                   /* ((rev 3) from the start: each record moves down over itself) */
+        for (i = 0; i < BK_REC1; i++)
+            b[r * BK_REC1 + i] = b[r * BK_REC + i];
 }
 /* bk_buf -> chunk c's next copy, the commit record last, then read back: 0 written. ((PERNOTE, rev 2) A chunk none of
  * whose records is version 3 is written as earlier builds write it, 3552 bytes: stock Skiff and 1.3.3-hold keep

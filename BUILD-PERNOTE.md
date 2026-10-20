@@ -28,6 +28,7 @@ Spec: SPEC-PERNOTE.md. Rev 2, 2026-10-19 (after an independent review of rev 1).
 - Rev 2 (review fixes): seq_thru mask (a tie rung through: kept through a ratchet's or FLAM's parts, never held on by a
   step SLIDE); POLY playback releases notes not held before any glide; bk_write writes a chunk without note modes at
   3552 (bk_squeeze); tests for each in tests/pernote_test.c review() and tests/bank_test.c pernote_bank().
+- Rev 3: bank.c without memmove (the firmware's own libc has none: the first GitHub build failed on it).
 - .github/workflows/release.yml: version 1.3.3-notes; a GitHub Pages job with the fork's installer and editor
   (tools/fork_site.py).
 
