@@ -14,6 +14,47 @@ synths and drums, patterns and songs, live performance, and a screen that shows 
   <img src="https://img.shields.io/badge/hardware-M--VAVE%20FM--1-555" alt="Hardware: M-VAVE FM-1">
 </p>
 
+> [!IMPORTANT]
+> **This is a fork, not the official Skiff.** SeattleUser0/skiff is [Skiff](https://github.com/illuminus5/skiff) 1.3.3
+> by illuminus5 with per-note step modes added. The official firmware, its releases and its issues are at
+> [illuminus5/skiff](https://github.com/illuminus5/skiff). Everything below "This fork" is the official README, and its
+> links (installer, editor, Learn Skiff, releases) go to the official Skiff.
+
+## This fork
+
+Version **1.3.3-notes**. Install it with [this fork's installer](https://seattleuser0.github.io/skiff/webapp/installer/)
+(Chrome or Edge on a computer) and edit it with [this fork's editor](https://seattleuser0.github.io/skiff/webapp/editor/)
+(works in MIDIWeb on the iPad too). The official installer and editor work with this firmware but can't install this
+build or show the note modes.
+
+What's different from Skiff 1.3.3:
+
+| | Official Skiff 1.3.3 | This fork (1.3.3-notes) |
+| --- | --- | --- |
+| A note's own mode | No. TIE, SLIDE and ACCENT apply to the whole step. | Each note in a step can be `-`, `ACC`, `SLD`, `A+S` or `TIE`. Two notes can hold while a third comes and goes on the same track. |
+| TIE on a note | No | The note keeps sounding through the next step with no new attack, over a REST too. |
+| SLD on a note | No | The note's voice glides to the closest note of the next step, with no new attack. |
+| Step SLIDE on a POLY track | Every held note re-attacks softly in the next step. | Notes the next step repeats keep sounding with no new attack (SLIDE HOLD). |
+| SEQ > NOTES page | No | After ROLL: KNOB 1 step, KNOB 2 note, KNOB 3 its pitch, KNOB 4 its mode. The roll draws each note's tie, slide and accent. |
+| Web editor steps | One text box for a step's notes | A cell for each note: its pitch and a mode menu |
+| Pattern storage | 888-byte pattern records | A block of 4 patterns holding a note mode is saved in a bigger format (960-byte records). Blocks without note modes are saved exactly as before. |
+| USB serial console | Yes (MENU > USB SERIAL) | Left out to make room in flash (a developer tool: installing, the editor, USB audio and MIDI are not affected) |
+| Undo levels | 8 | 7, to make room in RAM |
+
+Going back to the official Skiff: patterns saved here before note modes, and blocks of 4 patterns with no note modes
+in them, load as always. A block holding a note mode (patterns 1-4, 5-8, and so on) can't be read by the official
+Skiff, and all 4 of its patterns are missing there. Clear the note modes first, or keep a backup.
+
+More: [FORK.md](FORK.md) (what changed and how to use it), [SPEC-PERNOTE.md](SPEC-PERNOTE.md) (the full
+specification), [BUILD-PERNOTE.md](BUILD-PERNOTE.md) (what's built and what's left to test). Please don't report this
+fork's behaviour in the official Skiff's issues.
+
+GitHub builds every push to main (.github/workflows/release.yml, with the shared
+[fm1-build](https://github.com/zvenson/fm1-build) workflow) and publishes the installer and the editor to
+[seattleuser0.github.io/skiff](https://seattleuser0.github.io/skiff/).
+
+---
+
 <p align="center"><b>New in 1.3.3:</b> QUARK's scope as the tour video's event display, live from all six tracks, and
 fixes from your comments: HOME names the sound in LARGE too, PLAY says when it waits for an external clock, the
 installer says what it found ·

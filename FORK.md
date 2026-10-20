@@ -25,7 +25,14 @@ Patterns saved before load as they were. Patterns are stored 4 to a block (1-4, 
 pattern with note modes uses a bigger format that stock Skiff can't read, so going back to stock loses all 4 patterns
 in that block. Clear the note modes first, or keep a backup.
 
-Install the 1.3.3-notes package the same way as below (`skiff-1.3.3-notes.fwsc`).
+Other changes in 1.3.3-notes, to make the firmware fit the FM-1's flash and RAM:
+
+- The USB serial console is left out (MENU > USB SERIAL is gone). It is a developer tool; installing, the editor,
+  USB audio and MIDI don't use it.
+- Undo keeps 7 levels instead of 8.
+
+Install it with [this fork's installer](https://seattleuser0.github.io/skiff/webapp/installer/), or from a terminal
+as below (`skiff-1.3.3-notes.fwsc`). Edit it with [this fork's editor](https://seattleuser0.github.io/skiff/webapp/editor/).
 
 ### 1.3.3-hold: SLIDE HOLD
 

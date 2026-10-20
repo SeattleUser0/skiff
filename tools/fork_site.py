@@ -13,6 +13,7 @@ the installer and the editor. It calls make_site.py's own pieces, so both stay t
   tools/fork_site.py build/skiff-1.3.3-notes.fwsc 1.3.3-notes OUT_DIR
 
 Rev 1 (fork 1.3.3-notes): first version.
+Rev 2: the index page says what the fork is and how it differs from Skiff 1.3.3.
 """
 import json
 import re
@@ -58,12 +59,30 @@ def main(pkg, version, out):
             shutil.copy(WEB / f, ed / f)
     if (WEB / "fonts").is_dir():
         shutil.copytree(WEB / "fonts", ed / "fonts", dirs_exist_ok=True, ignore=shutil.ignore_patterns("InterTight*"))
-    (out / "index.html").write_text(
+    (out / "index.html").write_text(               # ((rev 2) what the fork is and how it differs, as README.md)
         '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">'
-        f'<title>Skiff {version}</title><h1>Skiff {version} (SeattleUser0 fork)</h1><ul>'
-        '<li><a href="webapp/editor/">Editor</a> (per-note modes)</li>'
-        '<li><a href="webapp/installer/">Installer</a></li>'
-        f'<li><a href="firmware/{name}">{name}</a></li></ul>\n', encoding="utf-8")
+        f'<title>Skiff {version} fork</title>'
+        '<style>body{font:16px/1.45 system-ui,sans-serif;max-width:46em;margin:2em auto;padding:0 16px;'
+        'background:#fff;color:#111}@media(prefers-color-scheme:dark){body{background:#111;color:#eee}a{color:#8bf}}'
+        'li{margin:.3em 0}</style>'
+        f'<h1>Skiff {version}</h1>'
+        '<p><b>This is a fork, not the official Skiff.</b> It is <a href="https://github.com/illuminus5/skiff">Skiff</a> '
+        '1.3.3 by illuminus5 with per-note step modes added. The official Skiff is at '
+        '<a href="https://illuminus5.github.io/skiff/">illuminus5.github.io/skiff</a>.</p>'
+        '<ul><li><a href="webapp/installer/">Installer</a> (Chrome or Edge on a computer)</li>'
+        '<li><a href="webapp/editor/">Editor</a> (Chrome, Edge, or MIDIWeb on the iPad)</li>'
+        f'<li><a href="firmware/{name}">{name}</a></li></ul>'
+        '<h2>How it differs from Skiff 1.3.3</h2><ul>'
+        '<li>Each note in a step has its own mode: - ACC SLD A+S TIE. TIE keeps the note sounding through the next '
+        'step with no new attack; SLD glides its voice to the closest note of the next step.</li>'
+        '<li>A step SLIDE on a POLY track holds the notes the next step repeats with no new attack.</li>'
+        '<li>New SEQ &gt; NOTES page after ROLL: KNOB 1 step, KNOB 2 note, KNOB 3 pitch, KNOB 4 mode.</li>'
+        '<li>The editor shows a cell for each note, with its pitch and its mode.</li>'
+        '<li>A block of 4 patterns holding a note mode is saved in a bigger format the official Skiff cannot read. '
+        'Other patterns are saved as before.</li>'
+        '<li>No USB serial console (a developer tool), and 7 undo levels instead of 8, to fit the FM-1.</li></ul>'
+        '<p>Source and details: <a href="https://github.com/SeattleUser0/skiff">github.com/SeattleUser0/skiff</a> '
+        '(README, FORK.md, SPEC-PERNOTE.md).</p>\n', encoding="utf-8")
     print(f"site: {out}: webapp/installer, webapp/editor, firmware/{name} ({len(raw)} B, {product})")
 
 
