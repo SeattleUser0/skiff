@@ -31,6 +31,7 @@ Spec: SPEC-PERNOTE.md. Rev 2, 2026-10-19 (after an independent review of rev 1).
 - Rev 5: the GitHub build overflowed the app's flash region (XIP, by 3092 B) and RAMTEXT (by 528 B). The build now
   leaves out the USB serial console (FELUCCA_CDC=0, a developer tool: MENU > USB SERIAL goes), the bigger note-mode
   helpers are out of line (core.h), and the undo ring moved from .ramx to .pool (ui.c).
+- Rev 6: .pool had no room (by 5796 B): the undo ring is back in .ramx with 7 copies, was 8 (ui.c UNDO_N).
 - Rev 3: bank.c without memmove (the firmware's own libc has none: the first GitHub build failed on it).
 - .github/workflows/release.yml: version 1.3.3-notes; a GitHub Pages job with the fork's installer and editor
   (tools/fork_site.py).

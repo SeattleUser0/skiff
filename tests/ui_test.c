@@ -8204,8 +8204,10 @@ static int test_undo_levels(void)
         undo_act(0, i, 50u + i, "X");
     for (i = 0; i < 10u; i++)
         undo_step(0);
-    ok = undo_n == UNDO_N && undo_back == UNDO_N && trk[0].step[0].n && trk[0].step[1].n && !trk[0].step[2].n;
-    bad += check("  10 acts, 8 levels: the newest 8 undo, the oldest 2 stay", ok);
+    ok = undo_n == UNDO_N && undo_back == UNDO_N;     /* ((PERNOTE, rev 6) UNDO_N 7: the oldest 3 stay) */
+    for (i = 0; i < 10u; i++)
+        ok &= !trk[0].step[i].n == (i >= 10u - UNDO_N);
+    bad += check("  10 acts, UNDO_N levels: the newest UNDO_N undo, the oldest stay", ok);
     for (i = 0; i < UNDO_WIN; i++)                     /* the window closes: OCT+ is the octave again */
         frame();
     press(B_OCTUP);
