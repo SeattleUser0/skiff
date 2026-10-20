@@ -291,6 +291,7 @@ typedef struct {                 /* acid-style step: up to 4 notes (POLY), time,
     uint8_t nmode[2];            /* (PERNOTE, fork 1.3.3-notes) each note's own mode, NM_*: note k in byte k / 2, bits
                                   * 4 (k % 2) .. +3; 0 for every note of every older pattern (SPEC-PERNOTE.md) */
 } step_t;
+/* (PERNOTE, rev 4) the bigger helpers out of line: the app's XIP region is nearly full (tools/build.py) */
 /* (PERNOTE, fork 1.3.3-notes, rev 1) a note's own mode (SPEC-PERNOTE.md): NM_ACC velocity 127; NM_SLD its voice carries
  * into the next step and glides to a note there; NM_AS both; NM_TIE it sounds on through the next step. The step's
  * own TIME and FLAG still apply to all its notes. Only notes 0 .. n-1 have a mode: the others' are 0 (nm_fit) */
@@ -312,7 +313,7 @@ static inline int nm_sld(uint32_t m) { return m == NM_SLD || m == NM_AS; }
 static inline int nm_tie(uint32_t m) { return m == NM_TIE; }
 static inline void nm_clear(step_t *s) { s->nmode[0] = s->nmode[1] = 0; }
 /* the modes of notes n .. 3 cleared, every value made one of NM_* (a step as it is stored and sent) */
-static inline void nm_fit(step_t *s)
+static __attribute__((noinline, unused)) void nm_fit(step_t *s)
 {
     uint32_t k, m[4];
     for (k = 0; k < 4u; k++)
@@ -323,7 +324,7 @@ static inline void nm_fit(step_t *s)
 }
 static inline int nm_any(const step_t *s) { return (s->nmode[0] | s->nmode[1]) != 0; }
 /* note k removed from the step's list (the notes after it move down one): its mode goes, theirs move with them */
-static inline void nm_remove(step_t *s, uint32_t k)
+static __attribute__((noinline, unused)) void nm_remove(step_t *s, uint32_t k)
 {
     uint32_t j;
     for (j = k; j + 1u < 4u; j++)
@@ -331,14 +332,14 @@ static inline void nm_remove(step_t *s, uint32_t k)
     nm_set(s, 3u, NM_NONE);
 }
 /* the 4 modes as one number 0..624 (m0 + 5 m1 + 25 m2 + 125 m3): a version 3 pattern record (bank.c) stores it */
-static inline uint32_t nm_code(const step_t *s)
+static __attribute__((noinline, unused)) uint32_t nm_code(const step_t *s)
 {
     uint32_t c = 0, k;
     for (k = 4u; k-- > 0;)
         c = c * NM_COUNT + (k < s->n ? nm_get(s, k) : NM_NONE);
     return c;
 }
-static inline int nm_uncode(step_t *s, uint32_t c)   /* 0: a number no build writes (625 and up) */
+static __attribute__((noinline, unused)) int nm_uncode(step_t *s, uint32_t c)   /* 0: a number no build writes (625 and up) */
 {
     uint32_t k;
     nm_clear(s);

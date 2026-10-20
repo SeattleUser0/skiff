@@ -1010,7 +1010,9 @@ typedef struct {
  * are used. `undo` is the newest: loads in a row share it as before */
 #define UNDO_N 8u
 #define UNDO_WIN 180u                    /* the undo window, frames (~2.7 s): OCT- back, OCT+ redo (undo_step) */
-static undo_t undo_ring[UNDO_N] __attribute__((section(".ramx")));
+static undo_t undo_ring[UNDO_N] __attribute__((section(".pool")));   /* ((PERNOTE, rev 5) .pool, not .ramx: with the
+                                  * steps' note modes the ring no longer fit the 24 KiB RAMTEXT region (by 528 B); it is
+                                  * the main loop's alone, as the other .pool buffers */
 static uint8_t undo_n, undo_top, undo_back;
 static const char *undo_label;   /* the next copy's name, set just before its load_begin (tl_undo_take,
                                   * motion_undo_take); 0: by what it changes */

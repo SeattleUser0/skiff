@@ -12,6 +12,7 @@
 # Rev 1 (fork of Skiff 1.3.3, SLIDE HOLD): first version.
 # Rev 2: also builds on a push to main (tag pushes from the Claude session were refused); non-tag builds are
 #        version 1.3.3-hold, not 1.3.3-dev.
+# Rev 5: FELUCCA_CDC=0 (no USB serial console: the flash region was full).
 # Rev 4: the build's output to annotations (sizes; its end on a failure).
 # Rev 3 (PERNOTE): non-tag builds are version 1.3.3-notes; a push to main also publishes the installer and the editor
 #        to GitHub Pages (job `pages`, tools/fork_site.py): https://seattleuser0.github.io/skiff/ once Pages is set to
@@ -40,6 +41,9 @@ jobs:
         if [ "$GITHUB_REF_TYPE" = tag ]; then v="${GITHUB_REF_NAME#v}"; else v=1.3.3-notes; fi
         # (rev 4) the build's output to annotations (they show on the run's page): its end on a failure, its size
         # lines (RAM .data+.bss, pool, RAM code + .ramx) either way
+        # (rev 5) without the USB serial console (FELUCCA_CDC=0, a developer tool): Skiff 1.3.3 nearly fills the app's
+        # flash region, and the per-note modes need about 3 KB more
+        export FELUCCA_CDC=0
         ok=0; ./build.sh --release "$v" > build.log 2>&1 || ok=1
         note=$(grep -E "RAM|pool|image|error|Error|failed|overflow" build.log | tail -40 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' || true)
         echo "::notice title=build sizes::$note"
