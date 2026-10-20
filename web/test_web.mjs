@@ -846,6 +846,37 @@ async function editorStepExtras() {
   o.done();
 }
 
+/* (PERNOTE, fork 1.3.3-notes, INFO 6E 01 05 after the wide ids) each note's own mode: two bytes after NUDGE (m0 | m1 << 3,
+   m2 | m3 << 3); read, written, kept by a write without them, the notes gone take theirs; firmware without the tag: none */
+async function editorNoteModes() {
+  const C = E.CMD;
+  const { rq, done } = attachMock({});
+  const info = E.parse[C.INFO](await rq(E.req.info()));
+  ok(info.noteModes === 5 && info.pcount === 135, "note modes: INFO 6E 01 05 after the wide ids (those still read)");
+  const full = { time: 0, flags: 0, vel: 100, chance: 100, ratchet: 1, flam: 0, cond: 0, nudge: 0 };
+  const r = E.req.stepSet(5, { n: 3, notes: [60, 64, 67, 0], ...full, modes: [4, 2, 3, 1] });
+  ok(r[1].length === 19 && r[1][17] === (4 | 2 << 3) && r[1][18] === 3, "note modes: STEP_SET 19 bytes, note 4's mode dropped (n 3)");
+  let s = E.parse[C.STEP_SET](await rq(r));
+  ok(s.modes.join() === "4,2,3,0", "note modes: written and read back (TIE SLD A+S)");
+  s = E.parse[C.STEP_SET](await rq(E.req.stepSet(5, { n: 3, notes: [60, 64, 67, 0], ...full })));
+  ok(s.modes.join() === "4,2,3,0", "note modes: a write without them keeps them");
+  s = E.parse[C.STEP_SET](await rq(E.req.stepSet(5, { n: 1, notes: [60, 0, 0, 0], ...full })));
+  ok(s.modes.join() === "4,0,0,0", "note modes: fewer notes, the modes of the notes gone go");
+  s = E.parse[C.TRACK_STEP](await rq(E.req.trackStep(2, 7, { n: 2, notes: [50, 55, 0, 0], ...full, modes: [1, 4, 0, 0] })));
+  ok(s.track === 2 && s.modes.join() === "1,4,0,0", "note modes: TRACK_STEP on any track");
+  ok(E.parse[C.STEP_GET]([1, 1, 60, 0, 0, 0, 0, 0, 96, 0, 0, 0, 100, 1, 0, 0, 32]).modes.join() === "0,0,0,0",
+     "note modes: a step from firmware without them reads none");
+  let threw = false;
+  try { E.parse[C.STEP_GET]([1, 1, 60, 0, 0, 0, 0, 0, 96, 0, 0, 0, 100, 1, 0, 0, 32, 5, 0]); } catch { threw = true; }
+  ok(threw, "note modes: a mode past TIE refused");
+  done();
+  const o = attachMock({ noModes: true });
+  const oi = E.parse[C.INFO](await o.rq(E.req.info()));
+  const os = E.parse[C.STEP_SET](await o.rq(E.req.stepSet(5, { n: 2, notes: [60, 64, 0, 0], ...full, modes: [1, 1, 0, 0] })));
+  ok(!oi.noteModes && os.modes.join() === "0,0,0,0", "note modes: firmware without them (no 6E): none shown, none kept");
+  o.done();
+}
+
 /* (Skiff W3) the DRUM-X kit (INFO 4B 01 08 after the step extras): KIT_GET reads a lane, KIT_PUT sets one, whole */
 async function editorKit() {
   const C = E.CMD;
@@ -1785,6 +1816,7 @@ await editorLibrarian();
 await editorGrid();
 await editorRatchet();
 await editorStepExtras();
+await editorNoteModes();
 await editorKit();
 await editorTransportNames();
 await editorLists();

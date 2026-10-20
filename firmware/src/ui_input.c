@@ -684,12 +684,68 @@ static void lock_clear(uint64_t held)
     ui_message(n ? "LOCKS CLEARED" : "NO LOCKS");
 }
 
+/* (PERNOTE, fork 1.3.3-notes) SEQ > NOTES's knobs (SPEC-PERNOTE.md "Device UI"): 1 STEP the cursor, as ROLL's; 2 NOTE a
+ * note of the cursor step (in the order stored); 3 PITCH that note's pitch (an empty step: a note, as ROLL's NOTE; a
+ * pitch another note of the step has is passed over); 4 MODE its own mode, - ACC SLD A+S TIE */
+static void notes_edit(uint32_t slot, int32_t steps)
+{
+    step_t *st = &TSEL->step[ui.cursor];
+    uint32_t k = npick_of(st), j;
+    int32_t x, d = steps > 0 ? 1 : -1;
+    if (slot)
+        follow_hold();
+    switch (slot) {
+    case 0:
+        cursor_set(ui.cursor + steps);
+        cursor_audition();
+        ui.npick = (uint8_t)npick_of(&TSEL->step[ui.cursor]);
+        break;
+    case 1:
+        if (st->n)
+            ui.npick = (uint8_t)clamp((int32_t)k + steps, 0, (int32_t)st->n - 1);
+        break;
+    case 2:
+        if (!st->n || st->time != ST_NOTE) {          /* (a REST, a TIE, an empty step: a note of its own, ROLL's way) */
+            if (st->time != ST_NOTE)
+                step_clear(st);
+            st->note[0] = last_note;
+            st->n = 1;
+            st->time = ST_NOTE;
+            nm_clear(st);
+            ui.npick = 0;
+            break;
+        }
+        for (x = st->note[k], steps = steps < 0 ? -steps : steps; steps > 0; steps--) {
+            int32_t y = x;
+            do {                                      /* the next pitch no other note of the step has */
+                y += d;
+                for (j = 0; j < st->n && (j == k || st->note[j] != (uint32_t)y); j++)
+                    ;
+            } while (y >= 1 && y <= 127 && j < st->n);
+            if (y < 1 || y > 127)
+                break;
+            x = y;
+        }
+        st->note[k] = (uint8_t)x;
+        last_note = st->note[k];
+        break;
+    default:
+        if (st->n && st->time == ST_NOTE)
+            nm_set(st, k, (uint32_t)clamp((int32_t)nm_get(st, k) + d, NM_NONE, NM_TIE));
+        break;
+    }
+}
+
 static void step_edit(uint32_t slot, int32_t steps)
 {
     step_t *st = &TSEL->step[ui.cursor];
     uint32_t i;
     if (drum_track(TSEL)) {
         grid_edit(slot, steps);
+        return;
+    }
+    if (notes_page(cur_page())) {                         /* ((PERNOTE) SEQ > NOTES) */
+        notes_edit(slot, steps);
         return;
     }
     if (slot)

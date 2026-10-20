@@ -521,6 +521,9 @@ static const page_t PAGES[] = {
     {"STEP", FAM_SEQ, SC_STEP, GR_TILES, {0, 1, 2, 3}},   /* (Skiff) the mockup's tiles: STEP NOTE VELO CHNC */
     {"ROLL", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},      /* (Skiff: Felucca's STEP, its piano roll; U3: not on a drum
                                                          * track, STEP is its grid) */
+    {"NOTES", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},     /* (PERNOTE, fork 1.3.3-notes) the roll; STEP NOTE PITCH MODE:
+                                                         * a note of the cursor step, its pitch, its own mode (ui.c
+                                                         * notes_on, ui_input.c notes_edit) */
     {"CHANCE", FAM_SEQ, SC_STEP, GR_CHANCE, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"PLAY", FAM_SEQ, SC_TRACK, GR_PLAY, {0xFF, 0xFF, P_DIR, 0xFF}},   /* (Skiff) the step's NUDGE, the track's DIR */
     {"PATTERN", FAM_SEQ, SC_TRACK, GR_STEPS, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},

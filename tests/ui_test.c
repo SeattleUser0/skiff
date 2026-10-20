@@ -2036,8 +2036,8 @@ static int test_presets_knob(void)
             }
         }
     }
-    bad += check("#92 PRESETS on STEP, ROLL, PATTERN, PLAY, CHANCE: the step cursor; the sound and the steps stay",
-                 cur_ok && n_cur == 5u);
+    bad += check("#92 PRESETS on STEP, ROLL, NOTES, PATTERN, PLAY, CHANCE: the step cursor; the sound and the steps stay",
+                 cur_ok && n_cur == 6u);                  /* ((PERNOTE) SEQ > NOTES, a step page too) */
     bad += check("#94 PRESETS on USER, PATTERNS, PROJECT, AUTOMATION, SONG: the selection (KNOB 1's); nothing loaded", sel_ok);
     bad += check("#94 PRESETS elsewhere (EDIT, ENV, LFO, FX, SCL, ARP, MIXER, GLOBAL, ...): the next sound, the steps stay",
                  snd_ok && n_snd >= 15u);
@@ -5693,7 +5693,9 @@ static int test_seq_tools(void)
     ui_power_on();
     go_page(GR_ROLL); frame();
     press(B_SEQ); frames(320);
-    ok = cur_page()->graph == GR_CHANCE && msg_is("HOLD [SEQ]: SHORTCUTS");   /* ((U3, N2) by task: STEP ROLL CHANCE PLAY */
+    ok = str_eq(cur_page()->title, "NOTES") && msg_is("HOLD [SEQ]: SHORTCUTS");   /* ((PERNOTE) NOTES after ROLL) */
+    press(B_SEQ); frames(320);
+    ok &= cur_page()->graph == GR_CHANCE;           /* ((U3, N2) by task: STEP ROLL NOTES CHANCE PLAY */
     press(B_SEQ); frames(320);                                            /* PATTERN AUTOMATION SONG) */
     ok &= str_eq(cur_page()->title, "PLAY");
     press(B_SEQ); frames(320);
@@ -5704,7 +5706,7 @@ static int test_seq_tools(void)
     ok &= cur_page()->graph == GR_SONG;
     press(B_SEQ); frames(320);
     ok &= cur_page()->graph == GR_TILES;
-    bad += check("  a tap on ROLL: the next SEQ page (U3: CHANCE PLAY PATTERN AUTOMATION SONG STEP; the hint first)", ok);
+    bad += check("  a tap on ROLL: the next SEQ page (NOTES CHANCE PLAY PATTERN AUTOMATION SONG STEP; the hint first)", ok);
 
     /* the whole sequence: REVERSE (a note's ties stay after it), SHIFT, CLEAR, locks, LEN, silent keys, undo */
     ui_power_on();

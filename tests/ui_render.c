@@ -705,6 +705,7 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
        S_NAME_USER, S_NAME_TYPING, S_NAME_123, S_NAME_EMPTY, S_NAME_FULL, S_NAME_PLAYING, S_PROJECT_NAMED,
        S_USER_FOOT, S_SLICES_BREAK, S_SLICES_USR, S_SLICES_NOFILE,
        S_ROLL_EMPTY, S_ROLL_ACID, S_ROLL_CHORDS, S_ROLL_TIES, S_ROLL_LEN32, S_ROLL_HIGH, S_ROLL_LOW, S_ROLL_WIDE, S_ROLL_PLAYING,
+       S_NOTES_MODES, S_NOTES_EMPTY,   /* (PERNOTE) SEQ > NOTES */
        S_ROLL_LOCKS, S_ROLL_LOCK_HELD, S_DRUM_LOCKS, S_DRUM_LOCK_HELD, S_MOTION_LOCKS, S_AUTO_LIST, S_AUTO_LIST_ADD, S_AUTO_LIST_DRUM, S_AUTO_LIST_DEL, S_REC_LAYER, S_REC_LAYER_SET,
        S_COUNTIN, S_COUNTIN2, S_MENU_AUDIO, S_HEAD_PLAY_REC, S_HEAD_REC_OTHER, S_HEAD_BPM_TURN, S_HEAD_BPM_LOCK,
        S_HEAD_BPM_LOCKED, S_HEAD_GLO_TURN, S_HEAD_DOWNBEAT, S_HEAD_BEAT_2, S_HEAD_PROJECT,
@@ -736,6 +737,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
     "name_user", "name_typing", "name_123", "name_empty", "name_full", "name_playing", "project_named",
     "user_foot", "slices_break", "slices_usr", "slices_nofile",
     "roll_empty", "roll_acid", "roll_chords", "roll_ties", "roll_len32_p2", "roll_high", "roll_low", "roll_wide", "roll_playing",
+    "notes_modes", "notes_empty",
     "roll_locks", "roll_lock_held", "drum_locks", "drum_lock_held", "motion_locks", "auto_list", "auto_list_add", "auto_list_drum", "auto_list_delete", "layer_rec", "layer_rec_set",
     "countin", "countin_2bars", "menu_audio", "head_play_rec", "head_rec_other", "head_bpm_turn", "head_bpm_lock",
     "head_bpm_locked", "head_glo_turn", "head_downbeat", "head_beat_2", "head_project",
@@ -1397,6 +1399,29 @@ static void setup(int s)
         break;
     case S_ROLL_EMPTY: case S_ROLL_ACID: case S_ROLL_CHORDS: case S_ROLL_TIES: case S_ROLL_LEN32: case S_ROLL_HIGH:
     case S_ROLL_LOW: case S_ROLL_WIDE: case S_ROLL_PLAYING: roll_scene(s); break;
+    /* (PERNOTE, fork 1.3.3-notes) SEQ > NOTES: the roll with each note's own mode drawn (TIE: its bar on into the next
+     * step, SLD: a line to the nearest note there, ACC: bright), the cursor step's note 2 picked (outlined); STEP NOTE
+     * PITCH MODE. And on an empty step: NOTE --, PITCH --, MODE - dim */
+    case S_NOTES_MODES: case S_NOTES_EMPTY: {
+        static const uint8_t CEG[] = {60, 64, 67}, CFA[] = {60, 65, 69}, DG[] = {62, 67}, E1[] = {64};
+        uint32_t i, p;
+        roll_scene(S_ROLL_EMPTY);
+        TSEL->p[P_VOICE] = V_POLY;
+        for (i = 0; i < 16u; i += 4u) {
+            step_put(&TSEL->step[i], ST_NOTE, 0, 3, CEG);
+            nm_set(&TSEL->step[i], 0, NM_TIE); nm_set(&TSEL->step[i], 1, NM_SLD); nm_set(&TSEL->step[i], 2, NM_ACC);
+            step_put(&TSEL->step[i + 1u], ST_NOTE, 0, 3, CFA);
+            nm_set(&TSEL->step[i + 1u], 2, NM_AS);
+            step_put(&TSEL->step[i + 2u], ST_NOTE, 0, 2, DG);
+            if (i < 12u) step_put(&TSEL->step[i + 3u], ST_NOTE, 0, 1, E1);
+        }
+        for (p = 0; p < NPAGES && !str_eq(PAGES[p].title, "NOTES"); p++)
+            ;
+        ui.page = (uint8_t)p;
+        ui.cursor = s == S_NOTES_EMPTY ? 15u : 4u;
+        ui.npick = 1;
+        break;
+    }
     /* 1.1 parameter locks (ui_input.c lock_*): the roll's steps with a lock marked under them; a step held (the note
      * key of its entry) shows what KNOB 1..4 lock (HOME's: ANALOG E5 E6 ATK REL), the locked ones bright; the DRUM grid
      * with its marks over the steps; a step key held after FX (DIST CHO DLY REV, REV and DLY locked); AUTOMATION's

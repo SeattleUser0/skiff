@@ -1037,6 +1037,25 @@ static void draw_columns(void)
             str_cpy(sl, "/", 8);
             fmt_int(sl + 1, TSEL->p[P_SLEN]);
             draw_column(0, "STEP", sn, sl, VAL(0u), -1, ICON_AUTO);
+            if (notes_page(cur_page())) {               /* ((PERNOTE) SEQ > NOTES: NOTE k/n, its PITCH, its MODE) */
+                static const char *const MODE_N[NM_COUNT] = {"-", "ACC", "SLD", "A+S", "TIE"};
+                uint32_t k = npick_of(st), on = st->n && st->time == ST_NOTE;
+                char nk[8], nl[8];
+                if (on) {
+                    fmt_int(nk, (int32_t)k + 1);
+                    str_cpy(nl, "/", 8);
+                    fmt_int(nl + 1, st->n);
+                    note_name(val, st->note[k]);
+                } else {
+                    str_cpy(nk, "--", 8);
+                    nl[0] = 0;
+                    str_cpy(val, "--", 12);
+                }
+                draw_column(1, "NOTE", nk, nl, on ? VAL(1u) : T_DIM, -1, ICON_AUTO);
+                draw_column(2, "PITCH", val, "", on ? VAL(2u) : T_DIM, -1, ICON_AUTO);
+                draw_column(3, "MODE", on ? MODE_N[nm_get(st, k)] : "-", "", on ? VAL(3u) : T_DIM, -1, ICON_AUTO);
+                return;
+            }
             draw_column(1, "NOTE", val, u, step_on(st) ? VAL(1u) : T_DIM, -1, ICON_AUTO);
             if (cur_page()->graph == GR_TILES) {        /* (Skiff) STEP's tiles, as the B mockup: VELO, CHNC */
                 char vv[8];

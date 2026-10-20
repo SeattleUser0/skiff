@@ -274,9 +274,74 @@ static int code(void)
     return check("CODE: 625 numbers both ways, 625 refused, nm_fit drops notes past n, nm_remove moves the rest", ok);
 }
 
+
+/* SEQ > NOTES (ui_input.c notes_edit): KNOB 2 picks a note of the cursor step, KNOB 3 its pitch (past a pitch the
+ * step has), KNOB 4 its mode (- ACC SLD A+S TIE, clamped); an empty step gets a note from KNOB 3; on a drum track
+ * the page is not there (as ROLL) */
+static void go_notes(void)
+{
+    uint32_t i;
+    for (i = 0; i < NPAGES && !str_eq(PAGES[i].title, "NOTES"); i++)
+        ;
+    ui.home = 0;
+    ui.page = (uint8_t)i;
+    page_entered();
+}
+static int notes_ui(void)
+{
+    int bad = 0, ok;
+    track_t *t;
+    uint32_t i;
+    ui_power_on();
+    stop_transport();
+    t = TSEL;
+    track_defaults_steps(t);
+    put(t, 0, (const uint8_t[]){C4, E4, G4}, 3, 0, 0);
+    ui.cursor = 0;
+    ui.npick = 0;
+    go_notes();
+    ok = str_eq(cur_page()->title, "NOTES") && notes_page(cur_page()) && cur_page()->graph == GR_ROLL;
+    turn(EN_K2, 1);
+    ok &= ui.npick == 1u;
+    turn(EN_K4, 1);
+    ok &= nm_get(&t->step[0], 1) == NM_ACC && !nm_get(&t->step[0], 0);
+    for (i = 0; i < 6u; i++)
+        turn(EN_K4, 1);
+    ok &= nm_get(&t->step[0], 1) == NM_TIE;      /* (clamped at TIE) */
+    turn(EN_K4, -1);
+    ok &= nm_get(&t->step[0], 1) == NM_AS;
+    bad += check("NOTES: KNOB 2 picks note 2, KNOB 4 its mode - ACC .. TIE (clamped), A+S back", ok);
+    turn(EN_K3, 2);
+    ok = t->step[0].note[1] == F4 + 1u;          /* E 64 -> F 65 -> F# 66 */
+    turn(EN_K3, 1);                               /* 66 -> 67 is G (note 3): passed over, 68 */
+    ok &= t->step[0].note[1] == 68u && t->step[0].note[2] == G4 && nm_get(&t->step[0], 1) == NM_AS;
+    bad += check("  KNOB 3 moves note 2's pitch, past the step's G, its mode with it", ok);
+    turn(EN_K2, 5);
+    ok = ui.npick == 2u;
+    turn(EN_K2, -9);
+    ok &= ui.npick == 0u;
+    bad += check("  KNOB 2 stays among the step's notes (1..3)", ok);
+    turn(EN_K1, 1);                               /* the cursor to step 2, empty */
+    ok = ui.cursor == 1u && !t->step[1].n;
+    turn(EN_K4, 1);
+    ok &= !nm_any(&t->step[1]);
+    turn(EN_K3, 1);
+    ok &= t->step[1].n == 1u && t->step[1].time == ST_NOTE && !nm_any(&t->step[1]);
+    bad += check("  an empty step: KNOB 4 nothing, KNOB 3 a note (no mode)", ok);
+    ui_power_on();
+    stop_transport();
+    go_notes();
+    i = ui.page;
+    ok = page_visible(i);
+    TSEL->engine = TSEL->eng_req = ENGI_DRUM;
+    ok &= !page_visible(i);
+    bad += check("  on a synth track the page is there, on a drum track not (as ROLL)", ok);
+    return bad;
+}
+
 int main(void)
 {
-    int bad = tie() + slide() + accent() + old() + others() + code();
+    int bad = tie() + slide() + accent() + old() + others() + code() + notes_ui();
     printf("%s\n", bad ? "PERNOTE TEST FAILED" : "pernote tests passed");
     return bad != 0;
 }

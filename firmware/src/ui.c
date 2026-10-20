@@ -206,6 +206,7 @@ static struct {
     uint8_t cursor;              /* SEQ: step being edited (STEP page KNOB 1 moves it) */
     uint8_t entry_open;          /* SEQ: keys held since the first press of this entry */
     uint8_t lane;                /* SEQ > STEP on a DRUM track (the grid): the lane the keys and KNOB 3 / 4 edit */
+    uint8_t npick;               /* (PERNOTE) SEQ > NOTES: the cursor step's note KNOB 2 picked (0..3, kept below its n) */
     uint8_t plk_src;             /* parameter locks (ui_input.c lock_*): the sound page whose KNOB 1..4 a step held
                                   * locks, PAGES index + 1; 0 = HOME's four */
     uint8_t plk_lane, plk_trk;   /* .. the grid: the lane and the track of the hits plk_rm takes away */
@@ -283,6 +284,10 @@ static void confirm_open(uint32_t kind, uint32_t trk)
  * the track x 16 + the entry: another track or entry since, none) */
 #define SPICK_COPY (NPAT + 1u)
 #define SPICK_CLEAR (NPAT + 2u)                /* ((Skiff U2) the entry cleared: its dialog, was EDIT) */
+/* (PERNOTE) SEQ > NOTES: the roll with a note of the cursor step picked (params.c: GR_ROLL as ROLL, its title says which) */
+static int notes_page(const page_t *pg) { return pg->scope == SC_STEP && pg->graph == GR_ROLL && str_eq(pg->title, "NOTES"); }
+/* (PERNOTE) the note NOTES has picked in step st: below its n (0 with none) */
+static uint32_t npick_of(const step_t *st) { return st->n ? (ui.npick < st->n ? ui.npick : st->n - 1u) : 0u; }
 static struct { uint8_t entry, pick, pick_at; } sg __attribute__((section(".pool")));
 
 /* MENU > DISPLAY > SCREEN OFF (1.1.5): after a while with no input on the panel the screen and its backlight go off

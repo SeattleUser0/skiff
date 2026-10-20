@@ -103,6 +103,13 @@
   .fm6ops td, .fm6ops th { padding: 0 2px; }
   input.fm6n { width: 3.2em; }
   #steps tr.off td { color: var(--dim); }
+  /* (PERNOTE) a step's notes as cells: its pitch over its own mode, side by side */
+  .notecells { display: flex; gap: 3px; }
+  .notecells .nc { display: inline-flex; flex-direction: column; gap: 1px; width: 4.6em; }
+  .notecells .nc.gone { display: none; }
+  #steps .notecells input.nn { width: 100%; box-sizing: border-box; }
+  .notecells select.nm { width: 100%; box-sizing: border-box; font-size: 11px; padding: 0 1px; }
+  .notecells .nc.empty select.nm { visibility: hidden; }
   .stepcols { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px 24px; }   /* ((1.3.1) the 16-step tables
                                                     side by side where they fit, else one under another: CSS columns of
                                                     470 px overlapped tables grown to ~790 px with FLAM, COND, NUDGE) */
@@ -563,6 +570,9 @@ const DX_KITS = [DX_KIT_DEF,
 const DRUMX_PKIT = [0, 0, 1, 2, 3, 4, 5, 6, 7, 8];
 const DX = { lanes: ["KICK", "SNARE", "CLAP", "CL HAT", "OP HAT", "TOM", "RIM", "BELL"], waves: ["SINE", "FM", "METAL", "BELL"],
   filters: ["LP", "BP", "HP"], shapes: ["DECAY", "LONG", "NOISE", "SINE"], values: ["PITCH", "P MOD", "DECAY", "NOISE", "COLOR"] };
+/* (PERNOTE, fork 1.3.3-notes; SPEC-PERNOTE.md) a note's own mode, as core.h NM_*: shown so, sent as its index */
+const NM_NAMES = ["-", "ACC", "SLD", "A+S", "TIE"];
+const NM_MARK = ["", ">", "~", ">~", "_"];        /* (the step grid's marks after a note) */
 function readHits(r, o) {
   o.hit = 0; o.acc = 0;
   if (r.i + 3 <= r.a.length) { const h = r.b(), c = r.b(), x = r.b(); o.hit = h | (x & 1) << 7; o.acc = (c | (x & 2) << 6) & o.hit; }
@@ -574,6 +584,9 @@ function readHits(r, o) {
   o.cond = r.i < r.a.length ? r.b() : 0;
   o.nudge = (r.i < r.a.length ? r.b() : 32) - 32;
   if (o.flam > 1 || o.cond >= TC_NAMES.length || o.nudge > 31) throw new Error("Invalid step extras");
+  o.modes = [0, 0, 0, 0];                         /* (PERNOTE, INFO 6E 01 05) each note's own mode (NM_*); older: none */
+  if (r.i + 2 <= r.a.length) { const a = r.b(), c = r.b(); o.modes = [a & 7, a >> 3 & 7, c & 7, c >> 3 & 7]; }
+  if (o.modes.some((m) => m >= NM_NAMES.length)) throw new Error("Invalid note mode");
   return o;
 }
 
@@ -610,6 +623,7 @@ const parse = {
     o.kitLanes = 0;                               /* (Skiff W3, INFO 4B 01 8) KIT_GET / KIT_PUT: the DRUM-X kit's lanes */
     o.skiff = 0;                                  /* (Skiff W3, INFO 57 01 caps) bits: 0 TRANSPORT, 1 PROJ_NAME, 2 POOL, 3 LIST,
                                                      4 PERFORM */
+    o.noteModes = 0;                              /* (PERNOTE, INFO 6E 01 05) each note's own mode: its values, 0 = none */
     for (const p of [8, 11]) if (o.motionMax && trailer[p] === 0x46 && trailer[p + 1] === 1) {   /* for the editor's */
       o.fm6 = { factory: trailer[p + 2], bank: trailer[p + 3], caps: 0 };                         /* PRESET / G_ENGSEL */
       if (trailer[p + 4] === 0x53 && trailer[p + 5] === 1) o.syncCaps = trailer[p + 6] & 3;
@@ -630,7 +644,10 @@ const parse = {
       if (trailer[r] === 0x49 && trailer[r + 1] === 1) {                                  /* (Skiff 1.3) wide ids: */
         o.pcount = trailer[r + 2] | trailer[r + 3] << 7;                                 /* P_COUNT and P_E0 whole */
         o.pe0 = trailer[r + 4] | trailer[r + 5] << 7;
+        r += 6;
       }
+      if (trailer[r] === 0x6E && trailer[r + 1] === 1) { o.noteModes = trailer[r + 2]; r += 3; }   /* (PERNOTE, fork
+                                                          1.3.3-notes) each note's own mode: the values (5) */
     }
     o.light = o.light || { tracks: 0, engines: 0 };   /* the tracks that may not play some engines, and those engines */
     return o;
@@ -863,7 +880,11 @@ const req = {
       ...(st.chance == null ? [] : [Math.max(0, Math.min(100, st.chance | 0))]),
       ...(st.chance == null || st.ratchet == null ? [] : [Math.max(1, Math.min(4, st.ratchet | 0))]),   /* (only after the chance) */
       ...(st.chance == null || st.ratchet == null || st.cond == null ? [] :                           /* (Skiff W1) FLAM, COND, */
-        [st.flam ? 1 : 0, Math.max(0, Math.min(TC_NAMES.length - 1, st.cond | 0)), Math.max(0, Math.min(63, (st.nudge | 0) + 32))])]];   /* NUDGE */
+        [st.flam ? 1 : 0, Math.max(0, Math.min(TC_NAMES.length - 1, st.cond | 0)), Math.max(0, Math.min(63, (st.nudge | 0) + 32))]),   /* NUDGE */
+      ...(st.chance == null || st.ratchet == null || st.cond == null || st.modes == null ? [] : (() => {   /* (PERNOTE) the */
+        const m = [0, 1, 2, 3].map((k) => (k < n ? Math.max(0, Math.min(NM_NAMES.length - 1, st.modes[k] | 0)) : 0));   /* modes */
+        return [m[0] | m[1] << 3, m[2] | m[3] << 3];
+      })())]];
   },
   preset: (e, p) => [CMD.PRESET, [e & 0x7F, p & 0x7F]],
   project: (op, slot) => { if (![0, 1, 2].includes(op)) throw new Error("bad PROJECT op"); return [CMD.PROJECT, [op, slot & 3]]; },   /* 0 load, 1 save, 2 query */
@@ -2352,12 +2373,15 @@ function makeMockDevice(opt = {}) {
   };
   const ratchetOn = () => !!syncCaps() && !opt.noRatchet;   /* (INFO 52 01 04, after the sync tag) */
   const stepxOn = () => ratchetOn() && !opt.noStepx;   /* (Skiff W1) a step's FLAM, COND, NUDGE (INFO 43 01) */
+  const modesOn = () => stepxOn() && !opt.noModes;     /* (PERNOTE, INFO 6E 01 05) each note's own mode (opt.noModes:
+                                                          a firmware without it) */
   const locksOn = () => ratchetOn() && !opt.noLocks;   /* (1.1, INFO 4C 01 01) MOTION ops 5..7 */
   const kitOn = () => stepxOn() && !opt.noKit;         /* (Skiff W3, INFO 4B 01 08) the DRUM-X kit */
   const projOn = () => kitOn() && !opt.noProj;         /* (Skiff W3, INFO 57 01 03) TRANSPORT, PROJ_NAME */
   const songOn = () => projOn() && !opt.noSong;        /* (Skiff W3, INFO 57 01 31) POOL, LIST, PERFORM */
   const stepOut = (x, b) => { b(x.n); x.notes.forEach(b); b(x.time); b(x.flags); b(x.vel); hitsEnc(x.hit, x.acc).forEach(b); if (!opt.legacy && !opt.v3 && !opt.v5) b(x.chance ?? 100); if (ratchetOn()) b(x.ratchet ?? 1);
-    if (stepxOn()) { b(x.flam ? 1 : 0); b(x.cond | 0); b(((x.nudge | 0) + 32) & 63); } };
+    if (stepxOn()) { b(x.flam ? 1 : 0); b(x.cond | 0); b(((x.nudge | 0) + 32) & 63); }
+    if (modesOn()) { const m = x.modes || [0, 0, 0, 0]; b(m[0] | m[1] << 3); b(m[2] | m[3] << 3); } };   /* ((PERNOTE)) */
   function stepIn(x, a) {                         /* editor.c ed_step_put: n, 4 notes, time, flags, vel [, hits (3) [, chance [, ratchet]]] */
     x.n = Math.min(4, a[0]); x.notes = a.slice(1, 5); x.time = Math.min(2, a[5]); x.flags = a[6] & 3; x.vel = a[7];
     if (a.length >= 11) { x.hit = a[8] | (a[10] & 1) << 7; x.acc = (a[9] | (a[10] & 2) << 6) & x.hit; }
@@ -2366,6 +2390,8 @@ function makeMockDevice(opt = {}) {
     if (a.length >= 16 && stepxOn()) {             /* (Skiff W1) FLAM (x1 only), COND, NUDGE (as the firmware: kept otherwise) */
       x.flam = a[13] && (x.ratchet ?? 1) === 1 ? 1 : 0; x.cond = a[14] < TC_NAMES.length ? a[14] : 0; x.nudge = Math.min(63, a[15]) - 32;
     }
+    if (a.length >= 18 && modesOn()) x.modes = [a[16] & 7, a[16] >> 3 & 7, a[17] & 7, a[17] >> 3 & 7];   /* (PERNOTE) editor.c */
+    if (x.modes) x.modes = x.modes.map((m, k) => (k < x.n && m < 5 ? m : 0));                      /* ed_step_put: nm_fit */
   }
   /* a few user presets to start with, each with its preset's suggested pattern stored (as UP_STORE would) */
   [[0, 0, 0, "MY LEAD"], [1, FM6_E, 1, "GLASS BELL"], [2, 2, 3, "PHASE RESO"], [5, 3, 2, "8BIT ARP"]].forEach(([slot, e, p, name]) => {
@@ -2416,6 +2442,7 @@ function makeMockDevice(opt = {}) {
       if (kitOn()) [0x4B, 1, 8].forEach(b);                    /* (Skiff W3) */
       if (projOn()) [0x57, 1, songOn() ? 31 : 3].forEach(b);
       if (projOn()) [0x49, 1, P_COUNT & 127, P_COUNT >> 7, P_E0 & 127, P_E0 >> 7].forEach(b);   /* ((Skiff 1.3) wide ids) */
+      if (projOn() && modesOn()) [0x6E, 1, 5].forEach(b);                                         /* ((PERNOTE)) */
     };
     const wid = (s, i) => (s === 2 ? [0, i + 128] : [s, i]);   /* ((1.3) scope 2: a track id from 128 on) */
     if (opt.legacy && cmd >= CMD.UP_LIST) return null;
@@ -3160,7 +3187,8 @@ const TEXT = {
     load: "読込", save: "保存", used: "使用中", empty: "空", unknown: "—",
     steps: "ステップ", reload: "再読み込み", clearSeq: "シーケンスを消去",
     notesHelp: "ノートは C4 E4 G4 のように入力（最大 4 音、C4 = 60）。ヒットは DRUM のレーン名（KICK >SNARE HATCL、> はアクセント）。",
-    notes: "ノート", hits: "ヒット", time: "タイム", acc: "アクセント", slide: "スライド", vel: "ベロシティ",
+    notesHelpModes: "ノートは 1 音ずつのセル：音高（C4、F#3。空にすると消える）とモード（- なし、ACC アクセント、SLD 次のステップのいちばん近い音へスライド、A+S 両方、TIE 次のステップの間も鳴らし続ける）。ヒットは DRUM のレーン名（KICK >SNARE HATCL、> はアクセント）。",
+    notes: "ノート", hits: "ヒット", time: "タイム", acc: "アクセント", slide: "スライド", vel: "ベロシティ", noteMode: "ノートのモード",
     foot: "Chrome か Edge で使えます。", iconsCredit: "アイコン: Fukiai（MIT）Hügelton Instruments",
     nomidi: "このブラウザでは使えません。Chrome か Edge で開いてください。",
     denied: "MIDI（SysEx）の使用が許可されませんでした。",
@@ -3283,7 +3311,8 @@ const TEXT = {
     load: "Load", save: "Save", used: "used", empty: "empty", unknown: "—",
     steps: "Steps", reload: "Reload", clearSeq: "Clear sequence",
     notesHelp: "Enter notes like C4 E4 G4 (up to 4, C4 = 60). Hits are DRUM lanes: KICK >SNARE HATCL (> = accent).",
-    notes: "Notes", hits: "Hits", time: "Time", acc: "Accent", slide: "Slide", vel: "Velocity",
+    notesHelpModes: "Each note is a cell: its pitch (C4, F#3; empty it to remove the note) and its mode: - none, ACC accent, SLD slides to the nearest note of the next step, A+S both, TIE rings on through the next step. Hits are DRUM lanes: KICK >SNARE HATCL (> = accent).",
+    notes: "Notes", hits: "Hits", time: "Time", acc: "Accent", slide: "Slide", vel: "Velocity", noteMode: "Note mode",
     foot: "Works in Chrome or Edge.", iconsCredit: "Icons: Fukiai (MIT), Hügelton Instruments",
     nomidi: "This browser cannot do it. Open the page in Chrome or Edge.",
     denied: "MIDI (SysEx) access was not allowed.",
@@ -4338,13 +4367,15 @@ function renderStepHead() { if (dev && dev.steps.length) renderSteps(); }
 const stepLen = () => Math.max(1, Math.min(dev.info.nstep, dev.dump.p[pSlen()] || 16));
 /* a step's notes as text */
 const stepNotes = (s) => s.notes.slice(0, s.n).map(noteName).join(" ");
+/* (PERNOTE) the notes with each one's mode marked (> ACC, ~ SLD, >~ A+S, _ TIE), for the step grid */
+const stepNotesMarked = (s) => s.notes.slice(0, s.n).map((n, k) => noteName(n) + (NM_MARK[s.modes?.[k] | 0] || "")).join(" ");
 const stepOn = (s) => !!s && s.time === 0 && (s.n > 0 || (s.hit | 0) > 0);
 function renderSteps() {
   if (!dev || !dev.steps.length) return;
   const len = stepLen();
   const box = $("steptables");
-  const shape = String(len);
-  $("noteshelp").textContent = t("notesHelp");
+  const shape = String(len) + (pmOn() ? "m" : "");   /* ((PERNOTE) cells or the text box: rebuilt on a change) */
+  $("noteshelp").textContent = t(pmOn() ? "notesHelpModes" : "notesHelp");   /* ((PERNOTE)) */
   renderGrid();
   /* keep the rows the user is typing in */
   if (box.contains(document.activeElement) && box.dataset.len === shape) { updateStepRows(); return; }
@@ -4360,9 +4391,28 @@ function renderSteps() {
   }
   box.replaceChildren(...tables);
 }
+/* (PERNOTE, fork 1.3.3-notes) with INFO 6E: the notes as 4 cells, each its pitch and its own mode (SPEC-PERNOTE.md
+   "Web editor"); a cell's pitch cleared removes that note, one typed into an empty cell adds it */
+const pmOn = () => !!(dev && dev.info && dev.info.noteModes && dev.info.stepx && dev.info.ratchet && dev.info.chance);
+function noteCells(i) {
+  const box = el("div", { class: "notecells" }), cells = [];
+  for (let k = 0; k < 4; k++) {
+    const p = el("input", { type: "text", class: "nn", placeholder: "—", spellcheck: "false", "aria-label": `${t("notes")} ${i + 1}.${k + 1}` });
+    const m = el("select", { class: "nm", "aria-label": `${t("noteMode")} ${i + 1}.${k + 1}` },
+      ...NM_NAMES.map((n, v) => el("option", { value: v, text: n })));
+    cells.push({ p, m });
+    box.append(el("span", { class: "nc" }, p, m));
+    /* left: the cells as the device has them, once no write of the row is on its way (a change, which comes before
+       the blur, has sent its write already) */
+    p.addEventListener("blur", () => { if (dev && dev.steps[i] && (box._sent | 0) === (box._got | 0)) fillCells(box, dev.steps[i]); });
+  }
+  box._cells = cells;
+  return box;
+}
 function stepRow(i) {
   const lab = (k) => ({ "aria-label": `${t(k)} ${i + 1}` });   /* ((Skiff W6) each named, with its step) */
-  const notes = el("input", { type: "text", placeholder: "—", spellcheck: "false", ...lab("notes") });
+  const pm = pmOn();
+  const notes = pm ? noteCells(i) : el("input", { type: "text", placeholder: "—", spellcheck: "false", ...lab("notes") });
   const hits = el("input", { type: "text", placeholder: "—", spellcheck: "false", class: "hits", ...lab("hits") });
   const time = el("select", lab("time"), ...TIMES.map((n, k) => el("option", { value: k, text: n })));
   const acc = el("input", { type: "checkbox", ...lab("acc") });
@@ -4378,10 +4428,11 @@ function stepRow(i) {
   const tr = el("tr", { "data-i": i }, el("td", { class: "i", text: String(i + 1) }),
     el("td", {}, notes), el("td", {}, hits), el("td", {}, time), el("td", {}, acc), el("td", {}, sl), el("td", {}, vel), ...(chance ? [el("td", {}, chance)] : []),
     ...(ratchet ? [el("td", {}, ratchet)] : []), ...(sx ? [el("td", {}, flam), el("td", {}, cond), el("td", {}, nudge)] : []));
-  tr._c = { notes, hits, time, acc, sl, vel, chance, ratchet, flam, cond, nudge };
+  tr._c = { notes, hits, time, acc, sl, vel, chance, ratchet, flam, cond, nudge, pm };
   fillStep(tr, dev.steps[i]);
   const send = () => writeStep(i, tr);
-  notes.addEventListener("change", send);
+  if (pm) for (const c of notes._cells) { c.p.addEventListener("change", send); c.m.addEventListener("change", send); }
+  else notes.addEventListener("change", send);
   hits.addEventListener("change", send);
   time.addEventListener("change", send);
   acc.addEventListener("change", send);
@@ -4395,8 +4446,11 @@ function stepRow(i) {
 function fillStep(tr, s) {
   const c = tr._c;
   if (!s) return;
-  c.notes.value = stepNotes(s);
-  c.notes.classList.remove("bad");
+  if (c.pm) fillCells(c.notes, s);               /* ((PERNOTE) the note cells) */
+  else {
+    c.notes.value = stepNotes(s);
+    c.notes.classList.remove("bad");
+  }
   c.hits.value = hitsText(s.hit | 0, s.acc | 0);
   c.hits.classList.remove("bad");
   c.time.value = String(s.time);
@@ -4426,7 +4480,8 @@ function renderGrid() {
   for (const b of box.children) {
     const i = +b.dataset.i, s = dev.steps[i];
     const on = stepOn(s), tie = !!s && s.time === 1;
-    const txt = on ? [stepNotes(s), hitsText(s.hit | 0, s.acc | 0)].filter(Boolean).join(" ") : tie ? "—" : "";
+    const txt = on ? [pmOn() ? stepNotesMarked(s) : stepNotes(s), hitsText(s.hit | 0, s.acc | 0)].filter(Boolean).join(" ") :
+      tie ? "—" : "";
     const marks = s && on ? (s.flags & 1 ? " >" : "") + (s.flags & 2 ? " ~" : "") + (s.ratchet > 1 ? " x" + s.ratchet : "") +
       (s.flam ? " f" : "") + (s.cond ? " " + TC_NAMES[s.cond] : "") + (s.nudge ? " " + (s.nudge > 0 ? "+" : "") + s.nudge : "") : "";
     b.className = [on && "on", tie && "tie", on && s.flags & 1 && "acc", i % 4 === 0 && "beat"].filter(Boolean).join(" ");
@@ -4438,14 +4493,45 @@ function focusStep(i) {
   const tr = $("steptables").querySelector(`tr[data-i="${i}"]`);
   if (!tr) return;
   tr.scrollIntoView({ block: "center", behavior: "smooth" });
-  tr._c.notes.focus({ preventScroll: true });
+  (tr._c.pm ? tr._c.notes._cells[0].p : tr._c.notes).focus({ preventScroll: true });
   tr.classList.add("hl");
   setTimeout(() => tr.classList.remove("hl"), 1200);
 }
+/* (PERNOTE) the cells from step s: notes 1..n with their modes, one empty cell after them (to add one), the rest gone */
+function fillCells(box, s) {
+  box._cells.forEach((x, k) => {
+    const on = k < s.n, typing = x.p === document.activeElement;
+    if (!typing) {                                  /* (the cell being typed into: its text stays; it is filled again */
+      x.p.value = on ? noteName(s.notes[k]) : "";   /* when it loses the focus, noteCells) */
+      x.p.classList.remove("bad");
+    }
+    x.m.value = String(on ? (s.modes?.[k] | 0) : 0);   /* (a menu changes at once: always the device's) */
+    x.m.disabled = !on;
+    x.p.parentNode.classList.toggle("empty", !on);
+    x.p.parentNode.classList.toggle("gone", k > s.n && !typing);
+  });
+}
+/* (PERNOTE) the cells -> { notes, modes }: the filled ones in order; null (the bad cell marked) on a pitch that does
+   not read or one twice */
+function readCells(box) {
+  const notes = [], modes = [];
+  let bad = false;
+  for (const x of box._cells) {
+    const txt = x.p.value.trim();
+    x.p.classList.remove("bad");
+    if (!txt) continue;
+    const n = parseNote(txt);
+    if (n == null || notes.includes(n)) { x.p.classList.add("bad"); bad = true; continue; }
+    notes.push(n);
+    modes.push(+x.m.value || 0);
+  }
+  return bad ? null : { notes, modes };
+}
 async function writeStep(i, tr) {
   const c = tr._c;
-  const notes = parseNotes(c.notes.value), hits = parseHits(c.hits.value);
-  c.notes.classList.toggle("bad", !notes);
+  const cells = c.pm ? readCells(c.notes) : null;
+  const notes = c.pm ? cells && cells.notes : parseNotes(c.notes.value), hits = parseHits(c.hits.value);
+  if (!c.pm) c.notes.classList.toggle("bad", !notes);
   c.hits.classList.toggle("bad", !hits);
   if (!notes || !hits) return;
   const old = dev.steps[i];
@@ -4457,11 +4543,19 @@ async function writeStep(i, tr) {
   if (c.chance) s.chance = Math.max(0, Math.min(100, Math.round(+c.chance.value || 0)));
   if (c.ratchet && c.chance) s.ratchet = Math.max(1, Math.min(4, +c.ratchet.value || 1));
   if (c.cond) { s.flam = c.flam.checked; s.cond = +c.cond.value || 0; s.nudge = Math.max(-32, Math.min(31, Math.round(+c.nudge.value || 0))); }
+  if (c.pm && c.cond) s.modes = cells.modes.concat([0, 0, 0, 0]).slice(0, 4);   /* ((PERNOTE) each note's own mode) */
   if ((s.n || s.hit) && !s.vel) s.vel = 96;
   stepEdit.set(i, performance.now());
+  const seq = tr._seq = (tr._seq | 0) + 1;        /* ((PERNOTE) a newer write of this row on its way: this reply is stale) */
+  if (c.pm) c.notes._sent = seq;
   try {
-    dev.steps[i] = parse[CMD.STEP_SET](await rq(req.stepSet(i, s)));
+    const got = parse[CMD.STEP_SET](await rq(req.stepSet(i, s)));
+    if (seq !== tr._seq) return;
+    if (c.pm) c.notes._got = seq;
+    dev.steps[i] = got;
     if (!tr.contains(document.activeElement) || document.activeElement === c.notes) fillStep(tr, dev.steps[i]);
+    else if (c.pm) { fillCells(c.notes, dev.steps[i]); renderGrid(); }   /* ((PERNOTE) a cell committed: the cells as
+                                                         the device has them, the next one there to type into) */
   } catch (err) { report(err); }
 }
 $("reloadsteps").addEventListener("click", async () => {
@@ -5463,7 +5557,9 @@ $("file").addEventListener("change", async () => {
           n: s.n | 0, notes: Array.isArray(s.notes) ? s.notes : [0, 0, 0, 0], time: s.time ?? 2, flags: s.flags | 0, vel: s.vel | 0,
           ...(dev.info.chance ? { hit: s.hit | 0, acc: s.acc | 0, chance: s.chance ?? 100 } : {}),
           ...(dev.info.chance && dev.info.ratchet ? { ratchet: s.ratchet ?? 1 } : {}),
-          ...(dev.info.chance && dev.info.ratchet && dev.info.stepx ? { flam: s.flam | 0, cond: s.cond | 0, nudge: s.nudge | 0 } : {}) })));
+          ...(dev.info.chance && dev.info.ratchet && dev.info.stepx ? { flam: s.flam | 0, cond: s.cond | 0, nudge: s.nudge | 0 } : {}),
+          ...(dev.info.chance && dev.info.ratchet && dev.info.stepx && dev.info.noteModes ?   /* ((PERNOTE) the note modes) */
+            { modes: Array.isArray(s.modes) ? s.modes : [0, 0, 0, 0] } : {}) })));
       }
     }
     dev.dump = await getDump();

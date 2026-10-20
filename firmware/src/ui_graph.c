@@ -418,7 +418,8 @@ static void pr_bars(const step_t *st, int32_t x, int32_t w, uint16_t c, int acc_
         int acc;
         if (n < 0)
             continue;
-        acc = acc_all || (j >= 4u && ((st->acc >> (j - 4u)) & 1u));
+        acc = acc_all || (j >= 4u ? ((st->acc >> (j - 4u)) & 1u) != 0u : nm_acc(nm_get(st, j)));   /* ((PERNOTE) a
+                                                     * note's own ACC: drawn as accented) */
         y = pr_row_y(n);
         if (*first < -1000)
             *first = y;
@@ -550,10 +551,35 @@ static void graph_roll(const track_t *t, uint16_t c)
             continue;                                 /* a REST, empty, or a TIE after one */
         st = &t->step[s];
         col = s == ui.cursor || si == ui.cursor ? T_ACCENT : c;
-        if (s == si)                                  /* ((Skiff) where it plays: its NUDGE, inside the grid) */
-            pr_bars(st, clamp(x + 2 + st->nudge * PR_CW / 64, PR_X0 + 1, PR_X0 + gw - 10), 9, col,
-                    (st->flags & SF_ACCENT) != 0u, &y, step_ratchet(st));
-        else                                          /* a TIE: the bars on through the gap before */
+        if (notes_page(cur_page()) && s == si && si == ui.cursor && st->n)
+            col = c;                                  /* ((PERNOTE) NOTES: the cursor step's notes in the track's colour,
+                                                       * the one picked bright and framed, below) */
+        if (s == si) {                                /* ((Skiff) where it plays: its NUDGE, inside the grid) */
+            int32_t bx = clamp(x + 2 + st->nudge * PR_CW / 64, PR_X0 + 1, PR_X0 + gw - 10);
+            uint32_t j;
+            pr_bars(st, bx, 9, col, (st->flags & SF_ACCENT) != 0u, &y, step_ratchet(st));
+            for (j = 0; j < st->n && j < 4u; j++) {   /* ((PERNOTE) each note's own TIE, SLD; NOTES: the one picked) */
+                uint32_t m = nm_get(st, j), k, best = 0;
+                int32_t jy = pr_row_y(st->note[j]);
+                if (jy < PR_Y0 || jy >= ybot)
+                    continue;
+                if (notes_page(cur_page()) && si == ui.cursor && j == npick_of(st)) {
+                    cv_rect(bx, jy, 9, PR_RH, T_ACCENT);
+                    cv_frame(bx - 2, jy - 1, 13, PR_RH + 2, T_TEXT);
+                }
+                if (step_ratchet(st) != 1u)
+                    continue;                         /* (a ratchet never ties or slides out) */
+                if (nm_tie(m))                        /* a tie: its bar on into the next step */
+                    cv_rect(bx + 9, jy + 2, PR_CW - 9 + 2, 1, T_TEXT);
+                if (nm_sld(m) && ns->time == ST_NOTE && ns->n) {   /* a slide: a line to the nearest note there */
+                    for (k = 1; k < ns->n && k < 4u; k++)
+                        if ((ns->note[k] > st->note[j] ? ns->note[k] - st->note[j] : st->note[j] - ns->note[k]) <
+                            (ns->note[best] > st->note[j] ? ns->note[best] - st->note[j] : st->note[j] - ns->note[best]))
+                            best = k;
+                    cv_line(bx + 8, jy + 2, bx + 12, clamp(pr_row_y(ns->note[best]), PR_Y0, ybot - PR_RH) + 2, T_TEXT);
+                }
+            }
+        } else                                        /* a TIE: the bars on through the gap before */
             pr_bars(st, x - 1, 12, col, (st->flags & SF_ACCENT) != 0u, &y, 1u);
         if ((st->flags & SF_SLIDE) && step_ratchet(st) == 1u &&   /* (a ratcheted step never slides out) */
             ns->time == ST_NOTE && ns->n && y >= PR_Y0 && y < ybot) {
