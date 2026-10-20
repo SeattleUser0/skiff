@@ -26,23 +26,39 @@
  * each chunk's newest copy whose payload checks wins. Four sectors spare: saves go round the free ones (wear). No RAM
  * image: a pattern is read when it is loaded (SPI, short IRQ-off windows: playing goes on); a write reads its chunk,
  * changes its patterns and writes it, only while stopped (an erase mutes the audio).
- * Without the flash driver (FELUCCA_FLASH 0) BK_RAM keeps the sectors in RAM (the host's UI tests); else no bank. */
+ * Without the flash driver (FELUCCA_FLASH 0) BK_RAM keeps the sectors in RAM (the host's UI tests); else no bank.
+ *
+ * (PERNOTE, fork 1.3.3-notes, rev 1; SPEC-PERNOTE.md "Storage") A record is 960 bytes (BK_REC), a chunk 3840 (BK_LEN, the
+ * most a sector holds after its 256-byte commit page). Bytes 0..887 are the record as above; 888..959 the note-mode
+ * plane. A record whose steps hold no note mode (core.h step_t.nmode) is written as version 1 or 2, byte for byte as
+ * before, its plane 0. One that holds some is version 3 (BK_VER3): its motion as version 2's, each step's 4 modes one
+ * number 0..624 (core.h nm_code), its low 9 bits in the plane (64 x 9 bits, low bit first) and its bit 9 in bit 6 of the
+ * step's meta byte, which in version 3 holds n x 3 + TIME in bits 0..3 and the step flags in 4..5 (bit 7 FLAM as
+ * before: bk_put10 / bk_get10). A chunk an earlier build wrote (3552 bytes: 4 x 888, BK_LEN1) still reads: bk_leg says
+ * which chunks are so, and every read spreads its records out to 960 (their planes 0). The next save of the chunk writes
+ * it in the new size. Stock Skiff reads a version 3 record as empty and refuses a 3840-byte chunk (its copy before
+ * stays in charge there). */
 #define BK_SLOTS 16u
 #define BK_VER 1u
 #define BK_VER2 2u                                 /* (Skiff 1.3) an id from 128 on (see the top) */
-static int bk_ver(uint32_t v) { return v == BK_VER || v == BK_VER2; }
+#define BK_VER3 3u                                 /* (PERNOTE) note modes (see the top) */
+static int bk_ver(uint32_t v) { return v == BK_VER || v == BK_VER2 || v == BK_VER3; }
 #define BK_PER 4u
 #define BK_POOL NPAT                               /* the patterns, ids 0 .. 63 (every track's: phase 5) */
 #define BK_CHUNKS (BK_POOL / BK_PER)
 #define BK_STEPS 8u
 #define BK_NUDGE (BK_STEPS + NSTEP * 9u)
 #define BK_MOT (BK_NUDGE + NSTEP / 4u * 3u)
-#define BK_REC (BK_MOT + MOTION_MAX * 4u)
-#define BK_LEN (BK_PER * BK_REC)                   /* a chunk's payload */
+#define BK_REC1 (BK_MOT + MOTION_MAX * 4u)        /* (PERNOTE) a record as every build before wrote it: 888 */
+#define BK_PLANE BK_REC1                           /* (PERNOTE) the note-mode plane: 9 bits a step */
+#define BK_REC (BK_PLANE + NSTEP * 9u / 8u)        /* (PERNOTE) a record: 960 */
+#define BK_LEN (BK_PER * BK_REC)                   /* a chunk's payload: 3840 */
+#define BK_LEN1 (BK_PER * BK_REC1)                 /* (PERNOTE) a chunk an earlier build wrote: 3552 */
 #define BK_NSECT 20u
 #define BK_NONE 0xFFu
 #define BK_MAGIC 0x31424B53u                       /* "SKB1" */
-_Static_assert(BK_REC == 888u && BK_LEN <= 4096u - 256u && BK_CHUNKS + 4u == BK_NSECT, "pattern bank layout");
+_Static_assert(BK_REC1 == 888u && BK_REC == 960u && BK_LEN <= 4096u - 256u && BK_CHUNKS + 4u == BK_NSECT,
+               "pattern bank layout");
 typedef struct { uint32_t magic, chunk, seq, len, sum, rsv[2], hsum; } bk_hdr_t;   /* at a sector's 0 */
 static const uint8_t BK_TIME[5] = {P_SLEN, P_SDIV, P_SSWING, P_SGATE, P_DIR};
 
@@ -52,6 +68,8 @@ static struct {
     uint8_t next;                                  /* the sector a save tries first (round: wear) */
     uint8_t len[BK_POOL];                          /* each pattern's LEN, 0 = empty (the page) */
     uint32_t gen;                                  /* any change (the page redraws) */
+    uint8_t leg[BK_CHUNKS];                        /* (PERNOTE) 1: the chunk's current copy is an earlier build's, 3552
+                                                    * bytes (BK_LEN1): its records 888 bytes apart */
 } bk;
 static uint8_t bk_buf[BK_LEN] __attribute__((section(".pool")));   /* a chunk read, changed and written */
 static uint8_t bk_rec[BK_REC] __attribute__((section(".pool")));   /* a track's pattern packed (pool_put) */
@@ -104,12 +122,34 @@ static int bk_head(uint32_t i, bk_hdr_t *h)        /* sector i's commit record v
 {
     if (bk_read(bk_sector(i), h, sizeof *h))
         return -1;
-    return h->magic == BK_MAGIC && h->chunk < BK_CHUNKS && h->len == BK_LEN &&
+    return h->magic == BK_MAGIC && h->chunk < BK_CHUNKS && (h->len == BK_LEN || h->len == BK_LEN1) &&
            h->hsum == proj_hash(h, sizeof *h - 4u) ? 0 : -1;
+}
+/* (PERNOTE) the 4 records of an earlier build's chunk (in b: 888 bytes apart) moved 960 apart, their planes 0 */
+static void bk_spread(uint8_t *b)
+{
+    uint32_t r;
+    for (r = BK_PER; r-- > 0;) {
+        memmove(b + r * BK_REC, b + r * BK_REC1, BK_REC1);
+        memset(b + r * BK_REC + BK_REC1, 0, BK_REC - BK_REC1);
+    }
 }
 static int bk_body(uint32_t i, const bk_hdr_t *h)  /* its payload -> bk_buf, the hash right: 0 */
 {
-    return bk_read(bk_sector(i) + 256u, bk_buf, BK_LEN) || proj_hash(bk_buf, BK_LEN) != h->sum ? -1 : 0;
+    if (bk_read(bk_sector(i) + 256u, bk_buf, h->len) || proj_hash(bk_buf, h->len) != h->sum)
+        return -1;
+    if (h->len == BK_LEN1)                         /* ((PERNOTE) an earlier build's: spread out) */
+        bk_spread(bk_buf);
+    return 0;
+}
+/* (PERNOTE) chunk c's current copy -> bk_buf, as 960-byte records (an earlier build's spread out): 0 read */
+static int bk_read_chunk(uint32_t c)
+{
+    if (bk_read(bk_sector(bk.sect[c] - 1u) + 256u, bk_buf, bk.leg[c] ? BK_LEN1 : BK_LEN))
+        return -1;
+    if (bk.leg[c])
+        bk_spread(bk_buf);
+    return 0;
 }
 static int bk_newer(uint32_t a, uint32_t b) { return a != b && a - b < 0x80000000u; }   /* (wraps) */
 static void bk_lens(uint32_t c)                    /* chunk c's patterns (in bk_buf): their LENs for the page */
@@ -148,6 +188,7 @@ static void bank_boot(void)
                 break;
             if (bk_body(best, &h[best]) == 0) {
                 bk.sect[c] = (uint8_t)(best + 1u);
+                bk.leg[c] = h[best].len == BK_LEN1;   /* ((PERNOTE) an earlier build's size) */
                 bk_lens(c);
                 break;
             }
@@ -193,14 +234,59 @@ static int bk_write(uint32_t c)
     if (bk_head(to, &chk) || memcmp(&chk, &h, sizeof h) || bk_body(to, &chk))
         return -7;                                 /* (a part that does not keep what it is given: not SAVED) */
     bk.sect[c] = (uint8_t)(to + 1u);
+    bk.leg[c] = 0;                                 /* ((PERNOTE) written in the new size) */
     bk.top = h.seq;
     bk.next = (uint8_t)((to + 1u) % BK_NSECT);
     bk.gen++;
     return 0;
 }
 
+/* (PERNOTE) a version 3 record's step i (see the top): step_put9's 9 bytes, the meta byte n x 3 + TIME | flags << 4 |
+ * mode bit 9 << 6 | FLAM << 7, the mode number's low 9 bits into the plane. 0: a step no format holds */
+static int bk_put10(uint8_t *r, uint32_t i, const step_t *st)
+{
+    uint8_t *b = r + BK_STEPS + i * 9u;
+    uint32_t c = nm_code(st), bit = i * 9u, k;
+    if (!step_put9(b, st))
+        return 0;
+    b[4] = (uint8_t)((st->n * 3u + st->time) | (st->flags & 3u) << 4 | ((c >> 9) & 1u) << 6 | (b[4] & 128u));
+    for (k = 0; k < 9u; k++, bit++)
+        if ((c >> k) & 1u)
+            r[BK_PLANE + bit / 8u] |= (uint8_t)(1u << (bit % 8u));
+    return 1;
+}
+/* (PERNOTE) record r's step i -> *s (its nudge untouched), as its version stores it: 0 for bytes no build wrote */
+static int bk_get10(step_t *s, const uint8_t *r, uint32_t i)
+{
+    const uint8_t *b = r + BK_STEPS + i * 9u;
+    uint8_t v1[9];
+    uint32_t meta, nt, c = 0, bit = i * 9u, k;
+    if (r[0] != BK_VER3) {
+        if (!step_get9(s, b))
+            return 0;
+        nm_clear(s);
+        return 1;
+    }
+    meta = b[4];
+    nt = meta & 15u;
+    if (nt > 4u * 3u + ST_REST)
+        return 0;
+    memcpy(v1, b, 9);
+    v1[4] = (uint8_t)(nt / 3u | (nt % 3u) << 3 | ((meta >> 4) & 3u) << 5 | (meta & 128u));   /* (as step_get9 reads it) */
+    if (!step_get9(s, v1))
+        return 0;
+    for (k = 0; k < 9u; k++, bit++)
+        c |= (uint32_t)((r[BK_PLANE + bit / 8u] >> (bit % 8u)) & 1u) << k;
+    c |= ((meta >> 6) & 1u) << 9;
+    if (!nm_uncode(s, c))
+        return 0;
+    nm_fit(s);
+    return 1;
+}
+
 /* a pattern -> record r: steps st, LEN DIV SWING GATE DIR tv (the sound's own), the events of ms placed on track k, the
- * automation on or not: 0 for a step no format can hold (none the UI makes) */
+ * automation on or not: 0 for a step no format can hold (none the UI makes). ((PERNOTE) version 3 when a step holds a
+ * note mode: bk_put10) */
 static int bk_pack_raw(uint8_t *r, uint32_t k, const step_t *st, const int16_t *tv, const motion_store_t *ms, int on)
 {
     uint32_t i, n = 0, np = PROJ_NP;
@@ -214,9 +300,22 @@ static int bk_pack_raw(uint8_t *r, uint32_t k, const step_t *st, const int16_t *
     r[1] = (uint8_t)np;
     for (i = 0; i < 5u; i++)
         r[2u + i] = (uint8_t)(tv[i] + 64);
-    for (i = 0; i < NSTEP; i++)
-        if (!step_put9(r + BK_STEPS + i * 9u, &st[i]))
-            return 0;
+    {
+        uint32_t v3 = 0;                           /* ((PERNOTE) a note mode anywhere: version 3) */
+        for (i = 0; i < NSTEP; i++) {
+            step_t q = st[i];
+            nm_fit(&q);
+            v3 |= (uint32_t)nm_any(&q);
+        }
+        for (i = 0; i < NSTEP; i++) {
+            step_t q = st[i];
+            nm_fit(&q);
+            if (!(v3 ? bk_put10(r, i, &q) : step_put9(r + BK_STEPS + i * 9u, &q)))
+                return 0;
+        }
+        if (v3)
+            r[0] = BK_VER3;
+    }
     nudge_pack(r + BK_NUDGE, st, NSTEP);
     for (i = 0; i < ms->count && n < MOTION_MAX; i++) {
         const motion_event_t *e = &ms->event[i];
@@ -226,8 +325,8 @@ static int bk_pack_raw(uint8_t *r, uint32_t k, const step_t *st, const int16_t *
         uint32_t id = np == P_COUNT || MOTION_ID(e) < P_E0 ? MOTION_ID(e) : MOTION_ID(e) - PROJ_NX;
         m[0] = (uint8_t)((e->place & 63u) | (id >> 7) << 6);   /* ((1.3) the id's bit 7: BK_VER2) */
         m[1] = (uint8_t)((id & 127u) | (e->lock ? MOTION_LOCK : 0u));
-        if (id > 127u)
-            r[0] = BK_VER2;
+        if (id > 127u && r[0] != BK_VER3)
+            r[0] = BK_VER2;                        /* ((PERNOTE) version 3 holds such ids as 2 does) */
         m[2] = (uint8_t)e->value;
         m[3] = (uint8_t)((uint16_t)e->value >> 8);
         n++;
@@ -253,7 +352,7 @@ static int bk_load(uint32_t c)
         memset(bk_buf, 0, BK_LEN);
         return 0;
     }
-    return bk_read(bk_sector(bk.sect[c] - 1u) + 256u, bk_buf, BK_LEN) ? 2 : 0;
+    return bk_read_chunk(c) ? 2 : 0;               /* ((PERNOTE) an earlier build's chunk spread out) */
 }
 /* record rec -> pattern id (rec 0: the pattern emptied): 0 done, 2 not (the transport runs, a flash error), 3 no flash */
 static int pool_put(uint32_t id, const uint8_t *rec)
@@ -298,11 +397,14 @@ static int pool_used(uint32_t id)
 static int pat_read(uint32_t id, uint8_t *r)
 {
     uint32_t i = pend_at(id), c = bk_chunk(id);
+    uint32_t rl = bk.leg[c] ? BK_REC1 : BK_REC;     /* ((PERNOTE) an earlier build's chunk: 888 apart, no plane) */
     if (i < PEND_N)
         memcpy(r, pend_rec[i], BK_REC);
     else if (!bk.len[id % BK_POOL] || !bk.sect[c] ||
-             bk_read(bk_sector(bk.sect[c] - 1u) + 256u + id % BK_PER * BK_REC, r, BK_REC))
+             bk_read(bk_sector(bk.sect[c] - 1u) + 256u + id % BK_PER * rl, r, rl))
         return 1;
+    else if (rl != BK_REC)
+        memset(r + BK_REC1, 0, BK_REC - BK_REC1);
     return bk_ver(r[0]) && (r[7] & 127u) <= MOTION_MAX ? 0 : 1;
 }
 /* record r (all 0: empty it) to be pattern id: the same as it is now, nothing; else it waits (over id's waiting copy,
@@ -400,7 +502,7 @@ static int pat_decode(const track_t *t, uint32_t id, step_t *st, int16_t *v, mot
         return 1;
     memset(st, 0, NSTEP * sizeof *st);
     for (i = 0; i < NSTEP; i++)
-        if (!step_get9(&st[i], r + BK_STEPS + i * 9u))
+        if (!bk_get10(&st[i], r, i))               /* ((PERNOTE) as its version stores it) */
             return 1;
     nudge_unpack(st, r + BK_NUDGE, NSTEP);
     for (i = 0; i < 5u; i++)
@@ -441,7 +543,7 @@ static void rec_motion_of(uint8_t *r, uint32_t id)  /* pattern id's stored autom
 {
     if (!pat_read(id, bk_buf)) {
         r[7] = bk_buf[7];
-        memcpy(r + BK_MOT, bk_buf + BK_MOT, BK_REC - BK_MOT);
+        memcpy(r + BK_MOT, bk_buf + BK_MOT, BK_REC1 - BK_MOT);   /* ((PERNOTE) the motion only, not the plane) */
     }
     bk_bufc = 0;
 }
@@ -1234,7 +1336,7 @@ static const uint8_t *bank_chunk(uint32_t c, uint32_t *len)
         return bk_buf;
     if (bk_bufc != c + 1u) {
         bk_bufc = 0;
-        if (bk_read(bk_sector(bk.sect[c] - 1u) + 256u, bk_buf, BK_LEN))
+        if (bk_read_chunk(c))                      /* ((PERNOTE) an earlier build's spread out: a backup of today's size) */
             return bk_buf;
         bk_bufc = (uint8_t)(c + 1u);
     }
@@ -1248,18 +1350,20 @@ static int bank_chunk_ok(const uint8_t *b, uint32_t len)
 {
     uint32_t r, i;
     step_t s;
+    uint32_t rl = len == BK_LEN1 ? BK_REC1 : BK_REC;   /* ((PERNOTE) a backup of an earlier build: 888 apart) */
     if (!len)
         return 1;
-    if (len != BK_LEN)
+    if (len != BK_LEN && len != BK_LEN1)
         return 0;
     for (r = 0; r < BK_PER; r++) {
-        const uint8_t *p = b + r * BK_REC;
+        const uint8_t *p = b + r * rl;
         if (!p[0])
             continue;
-        if (!bk_ver(p[0]) || p[1] < 8u || p[1] > P_COUNT || (p[7] & 127u) > MOTION_MAX)
-            return 0;
+        if (!bk_ver(p[0]) || p[1] < 8u || p[1] > P_COUNT || (p[7] & 127u) > MOTION_MAX ||
+            (rl == BK_REC1 && p[0] == BK_VER3))
+            return 0;                              /* ((PERNOTE) an earlier build's record is never version 3) */
         for (i = 0; i < NSTEP; i++)
-            if (!step_get9(&s, p + BK_STEPS + i * 9u))
+            if (!bk_get10(&s, p, i))
                 return 0;
     }
     return 1;
@@ -1274,9 +1378,11 @@ static int bank_restore(uint32_t c, const uint8_t *b, uint32_t len)
         return 0;                                  /* (empty here too) */
     if (!BK_ON)
         return 1;
-    if (len)
-        memcpy(bk_buf, b, BK_LEN);
-    else
+    if (len) {
+        memcpy(bk_buf, b, len);
+        if (len == BK_LEN1)                        /* ((PERNOTE) a backup of an earlier build: spread out) */
+            bk_spread(bk_buf);
+    } else
         memset(bk_buf, 0, BK_LEN);
     if (bk_write(c))
         return 1;

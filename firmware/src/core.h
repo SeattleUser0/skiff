@@ -288,7 +288,66 @@ typedef struct {                 /* acid-style step: up to 4 notes (POLY), time,
     uint8_t cond;                /* Skiff: the trig condition (TC_*; 0 = always: every older pattern) */
     int8_t nudge;                /* Skiff: NUDGE, NUDGE_MIN..NUDGE_MAX 64ths of the step later (seq.c seq_enter); 0 =
                                   * on the grid: every older pattern */
+    uint8_t nmode[2];            /* (PERNOTE, fork 1.3.3-notes) each note's own mode, NM_*: note k in byte k / 2, bits
+                                  * 4 (k % 2) .. +3; 0 for every note of every older pattern (SPEC-PERNOTE.md) */
 } step_t;
+/* (PERNOTE, fork 1.3.3-notes, rev 1) a note's own mode (SPEC-PERNOTE.md): NM_ACC velocity 127; NM_SLD its voice carries
+ * into the next step and glides to a note there; NM_AS both; NM_TIE it sounds on through the next step. The step's
+ * own TIME and FLAG still apply to all its notes. Only notes 0 .. n-1 have a mode: the others' are 0 (nm_fit) */
+enum { NM_NONE, NM_ACC, NM_SLD, NM_AS, NM_TIE, NM_COUNT };
+static inline uint32_t nm_get(const step_t *s, uint32_t k)
+{
+    uint32_t m = k < 4u ? (s->nmode[k >> 1] >> ((k & 1u) * 4u)) & 15u : 0u;
+    return m < NM_COUNT ? m : NM_NONE;
+}
+static inline void nm_set(step_t *s, uint32_t k, uint32_t m)
+{
+    if (k >= 4u)
+        return;
+    m = m < NM_COUNT ? m : NM_NONE;
+    s->nmode[k >> 1] = (uint8_t)((s->nmode[k >> 1] & ~(15u << ((k & 1u) * 4u))) | m << ((k & 1u) * 4u));
+}
+static inline int nm_acc(uint32_t m) { return m == NM_ACC || m == NM_AS; }
+static inline int nm_sld(uint32_t m) { return m == NM_SLD || m == NM_AS; }
+static inline int nm_tie(uint32_t m) { return m == NM_TIE; }
+static inline void nm_clear(step_t *s) { s->nmode[0] = s->nmode[1] = 0; }
+/* the modes of notes n .. 3 cleared, every value made one of NM_* (a step as it is stored and sent) */
+static inline void nm_fit(step_t *s)
+{
+    uint32_t k, m[4];
+    for (k = 0; k < 4u; k++)
+        m[k] = k < s->n ? nm_get(s, k) : NM_NONE;
+    nm_clear(s);
+    for (k = 0; k < 4u; k++)
+        nm_set(s, k, m[k]);
+}
+static inline int nm_any(const step_t *s) { return (s->nmode[0] | s->nmode[1]) != 0; }
+/* note k removed from the step's list (the notes after it move down one): its mode goes, theirs move with them */
+static inline void nm_remove(step_t *s, uint32_t k)
+{
+    uint32_t j;
+    for (j = k; j + 1u < 4u; j++)
+        nm_set(s, j, nm_get(s, j + 1u));
+    nm_set(s, 3u, NM_NONE);
+}
+/* the 4 modes as one number 0..624 (m0 + 5 m1 + 25 m2 + 125 m3): a version 3 pattern record (bank.c) stores it */
+static inline uint32_t nm_code(const step_t *s)
+{
+    uint32_t c = 0, k;
+    for (k = 4u; k-- > 0;)
+        c = c * NM_COUNT + (k < s->n ? nm_get(s, k) : NM_NONE);
+    return c;
+}
+static inline int nm_uncode(step_t *s, uint32_t c)   /* 0: a number no build writes (625 and up) */
+{
+    uint32_t k;
+    nm_clear(s);
+    if (c >= NM_COUNT * NM_COUNT * NM_COUNT * NM_COUNT)
+        return 0;
+    for (k = 0; k < 4u; k++, c /= NM_COUNT)
+        nm_set(s, k, c % NM_COUNT);
+    return 1;
+}
 #define NUDGE_MIN (-32)
 #define NUDGE_MAX 31
 /* (Skiff) n steps' NUDGE as a stored plane: 6 bits each, two's complement (a plane of 0s: every step on the grid), 4
@@ -400,8 +459,13 @@ typedef struct track {
     uint16_t seq_idx;
     uint8_t seq_cnt;             /* (Skiff) steps of the pass so far (0: none yet, a run starts: PLAY, a song row); seq_next */
     uint8_t seq_down;            /* (Skiff) DIR PING: on its way down */
-    uint8_t seq_notes[4 + NLANE];   /* sounding seq notes (the step's notes, then its hits) */
+    uint8_t seq_notes[8 + NLANE];   /* sounding seq notes (the step's notes, then its hits; (PERNOTE) then the notes a
+                                     * TIE holds on through this step: 4 more) */
     uint8_t seq_n;
+    uint16_t seq_keep;           /* (PERNOTE) bit i: seq_notes[i] is held past its gate into the next step (its NM_TIE /
+                                  * NM_SLD; seq_hold holds them all) */
+    uint16_t seq_sld;            /* (PERNOTE) bit i: seq_notes[i] slides (NM_SLD / NM_AS): it may glide in the next step */
+    uint16_t seq_tie;            /* (PERNOTE) bit i: seq_notes[i] is tied (NM_TIE): it sounds through the next step */
     uint8_t seq_hold;            /* last step slides: keep the notes until the next step */
     uint8_t slide_glide;         /* next legato note glides (slide) */
     uint8_t rat_left;            /* RATCH: repeats of the playing step still to come (seq.c seq_ratchet) */

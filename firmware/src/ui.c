@@ -707,6 +707,7 @@ static void step_clear(step_t *st)
     st->probability = 0;
     st->cond = 0;                                /* (Skiff: its trig condition too, its NUDGE) */
     st->nudge = 0;
+    nm_clear(st);                                /* ((PERNOTE) its notes' own modes) */
 }
 
 /* ------------------------------------------------------- the DRUM grid --- */
@@ -742,6 +743,7 @@ static void grid_own(step_t *s, uint32_t l)
     for (k = j; k < 4u; k++)
         s->note[k] = 0;
     s->n = (uint8_t)j;
+    nm_clear(s);                                 /* ((PERNOTE) a drum kit's notes have no TIE or SLD; its notes moved) */
 }
 
 /* lane l of step i: on 1, off 0, toggled 2 */

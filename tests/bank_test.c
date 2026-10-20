@@ -181,8 +181,9 @@ static int layout(void)
             ok &= bk_sector(o) != s;
     }
     bad += check("20 sectors: the VM area's last two, the package's USR region; not BTIF, nor any other object's", ok);
-    bad += check("a pattern 888 bytes (steps, NUDGE, timing, 64 motion records), 4 a sector, 16 chunks + 4 spare",
-                 BK_REC == 888u && BK_LEN <= 3840u && BK_CHUNKS == 16u && BK_NSECT == 20u);
+    bad += check("a pattern 960 bytes (steps, NUDGE, timing, 64 motion records, (PERNOTE) the note-mode plane), 4 a "
+                 "sector, 16 chunks + 4 spare", BK_REC1 == 888u && BK_REC == 960u && BK_LEN <= 3840u && BK_CHUNKS == 16u &&
+                 BK_NSECT == 20u);
     return bad;
 }
 
@@ -470,7 +471,8 @@ static int torn(void)
     bank_put(0, 2, 0);                            /* the copy before: C, pattern 01 (ids 0..3's chunk) */
     rich(0, 9);
     snap(&c, 0);
-    for (n = 0; n <= (int)(BK_LEN / 256u) + 1; n++) {   /* the power goes after n writes: the payload's pages, the header */
+    for (n = 0; n <= (int)((BK_LEN + 255u) / 256u); n++) {   /* the power goes after n writes: the payload's pages, the
+                                                              * header ((PERNOTE) each page, before the header) */
         rich(0, 9);
         fail_after = n;
         ok &= bank_put(0, 2, 0) != 0;
@@ -1157,10 +1159,129 @@ static int dx_kit_project(void)
     return bad;
 }
 
+
+/* (PERNOTE, fork 1.3.3-notes) each note's own mode (core.h step_t.nmode) in the pool: a pattern with modes is a version 3
+ * record and comes back whole over a power cycle; one without is version 1 / 2 with its plane 0 (as before); every one of
+ * the 625 mode numbers goes through bk_put10 / bk_get10; a chunk an earlier build wrote (3552 bytes, 888-byte records)
+ * still loads and is written in today's size when next saved; backups of both sizes restore; an earlier build's chunk
+ * never holds a version 3 record */
+static void modes_on(uint32_t k, uint32_t seed)   /* track k's notes get modes (some steps none) */
+{
+    uint32_t i, j;
+    for (i = 0; i < NSTEP; i++) {
+        step_t *s = &trk[k].step[i];
+        nm_clear(s);
+        for (j = 0; j < s->n && (i + seed) % 3u; j++)
+            nm_set(s, j, (i * 3u + j * 7u + seed) % NM_COUNT);
+    }
+}
+static void chunk_old(uint32_t c, const uint8_t *buf1)   /* chunk c's next copy as an earlier build writes it */
+{
+    uint32_t to = bk_free(), base = bk_sector(to), off;
+    bk_hdr_t h;
+    bk_erase(base);
+    for (off = 0; off < BK_LEN1; off += 256u)
+        bk_prog(base + 256u + off, buf1 + off, BK_LEN1 - off > 256u ? 256u : BK_LEN1 - off);
+    h.magic = BK_MAGIC; h.chunk = c; h.seq = bk.top + 1u; h.len = BK_LEN1; h.sum = proj_hash(buf1, BK_LEN1);
+    h.rsv[0] = h.rsv[1] = 0xFFFFFFFFu; h.hsum = proj_hash(&h, sizeof h - 4u);
+    bk_prog(base, &h, sizeof h);
+}
+static int pernote_bank(void)
+{
+    int bad = 0, ok = 1;
+    snap_t a, b, c;
+    static uint8_t r[BK_REC], old[BK_LEN1], back[BK_LEN];
+    uint32_t i, id, ch, len;
+    fresh();
+    rich(1, 3);
+    modes_on(1, 3);
+    snap(&a, 1);
+    ok = bank_put(1, 5, 0) == 0;
+    id = ent_pat(1, 5);
+    ok &= !pat_read(id, r) && r[0] == BK_VER3;
+    power_cycle();
+    detach(1);
+    ok &= ent_go(1, 5) == 0;
+    snap(&b, 1);
+    bad += check("(PERNOTE) a pattern with note modes: version 3, every mode back over a power cycle", ok && same(&a, &b));
+    rich(2, 7);
+    snap(&c, 2);
+    ok = bank_put(2, 3, 0) == 0 && !pat_read(ent_pat(2, 3), r) && (r[0] == BK_VER || r[0] == BK_VER2);
+    for (i = BK_PLANE; i < BK_REC; i++)
+        ok &= !r[i];
+    detach(2);
+    ok &= ent_go(2, 3) == 0;
+    snap(&b, 2);
+    bad += check("  one without: version 1 or 2 as before, its plane 0, back whole", ok && same(&c, &b));
+    {   /* every mode number, on a step of each n, through the version 3 step coding */
+        static uint8_t q[BK_REC];
+        step_t s, t;
+        uint32_t code, n;
+        ok = 1;
+        for (n = 1; n <= 4u; n++)
+            for (code = 0; code < 625u; code++) {
+                memset(&s, 0, sizeof s);
+                s.n = (uint8_t)n; s.time = (uint8_t)(code % 3u); s.vel = 90; s.note[0] = 60; s.note[1] = 62;
+                s.note[2] = 65; s.note[3] = 69; s.flags = (uint8_t)(code % 4u);
+                nm_uncode(&s, code);
+                nm_fit(&s);
+                memset(q, 0, sizeof q);
+                q[0] = BK_VER3;
+                ok &= bk_put10(q, code % NSTEP, &s);
+                memset(&t, 0, sizeof t);
+                ok &= bk_get10(&t, q, code % NSTEP) && !memcmp(&s, &t, sizeof s);
+            }
+        bad += check("  all 625 mode numbers, n 1..4, every TIME and flag: through bk_put10 / bk_get10 unchanged", ok);
+    }
+    /* an earlier build's chunk: the record of T3's D (version 1 / 2, 888 bytes) at its place, 888 apart */
+    id = ent_pat(2, 3);
+    ch = bk_chunk(id);
+    ok = !pat_read(id, r);
+    memset(old, 0, sizeof old);
+    memcpy(old + id % BK_PER * BK_REC1, r, BK_REC1);
+    chunk_old(ch, old);
+    power_cycle();
+    ok &= bk.leg[ch] == 1u && pool_used(id);
+    detach(2);
+    ok &= ent_go(2, 3) == 0;
+    snap(&b, 2);
+    bad += check("  a chunk an earlier build wrote (3552 bytes): it loads, its pattern whole", ok && same(&c, &b));
+    trk_pid[2] = 0;                                /* (the track a new pattern: its next keep takes a new id) */
+    modes_on(2, 1);
+    snap(&a, 2);
+    ok = bank_put(2, 4, 0) == 0 && ent_pat(2, 4) != id;
+    ok &= bk.leg[bk_chunk(ent_pat(2, 4))] == 0u;
+    power_cycle();
+    detach(2);
+    ok &= ent_go(2, 4) == 0;
+    snap(&b, 2);
+    ok &= same(&a, &b);
+    detach(2);
+    ok &= ent_go(2, 3) == 0;
+    snap(&b, 2);
+    bad += check("  saved again: today's size, the old pattern and the new one with modes both there", ok && same(&c, &b));
+    /* backups: a chunk read out is today's size; an earlier build's 3552-byte chunk restores */
+    {
+        const uint8_t *p = bank_chunk(ch, &len);
+        ok = len == BK_LEN;
+        memcpy(back, p, BK_LEN);
+        ok &= bank_chunk_ok(back, BK_LEN) && bank_chunk_ok(old, BK_LEN1) && !bank_chunk_ok(old, 1000u);
+        ok &= bank_restore(ch, old, BK_LEN1) == 0 && bk.leg[ch] == 0u;
+        detach(2);
+        ok &= ent_go(2, 3) == 0;
+        snap(&b, 2);
+        ok &= same(&c, &b);
+        old[id % BK_PER * BK_REC1] = BK_VER3;
+        ok &= !bank_chunk_ok(old, BK_LEN1);
+        bad += check("  backups: read out at 3840; an earlier build's 3552 restores; none holds version 3 at 888", ok);
+    }
+    return bad;
+}
+
 int main(void)
 {
     int bad = layout() + fidelity() + keep() + entries() + staged_all() + last_track() + torn() + wear_and_wrap() +
-              playing() + live() + scenes() + scenes_six() + song_test() + migrate() + dx_kit_project();
+              playing() + live() + scenes() + scenes_six() + song_test() + migrate() + dx_kit_project() + pernote_bank();
     printf("%s\n", bad ? "BANK TEST FAILED" : "pattern bank tests passed");
     return bad != 0;
 }

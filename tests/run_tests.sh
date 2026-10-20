@@ -42,6 +42,8 @@
 #                   user preset patterns, SEQ > CHANCE KNOB 3 and the roll / grid drawing.
 # SLIDE HOLD (tests/slide_hold_test.c, fork of 1.3.3): on a POLY track, notes a SLIDE step carries into the next step
 #                   keep sounding with no new note-on; dropped notes release, added ones strike; MONO and DRUM untouched.
+# PERNOTE (tests/pernote_test.c, fork 1.3.3-notes; SPEC-PERNOTE.md): each note's own TIE (rings through the next step,
+#                   over a REST too), SLD (glides to the nearest free pitch), A+S, ACC; MONO, ratchets, kits, stop, a preview.
 # MOD (tests/mod_test.c): the modulation matrix: slots that do nothing are bit-identical, every source on each
 #                   kind of destination, clamping, MIDI CC1 / CC11 / aftertouch routing, the cost of 4 active
 #                   slots (at most +5 %), demos in build/mod_demo/.
@@ -200,6 +202,8 @@ if [ -f build/gen/felucca_tables.h ]; then
     run "RATCH: x1..x4 in a step (notes, chords, drum hits), gates, chance, swing, projects, user presets, CHANCE page; FLAM" "$OUT/ratchet_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/slide_hold_test" tests/slide_hold_test.c -lm
     run "SLIDE HOLD: carried notes keep sounding through a SLIDE (POLY), dropped ones release, added ones strike" "$OUT/slide_hold_test"
+    $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/pernote_test" tests/pernote_test.c -lm
+    run "PERNOTE: each note's TIE / SLD / ACC (tie through a step, glide to the nearest, accent), MONO, ratchets, kits, stop" "$OUT/pernote_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_control_test" tests/midi_control_test.c -lm
     run "USB/TRS clock, bend, sustain, ownership and panic recovery" "$OUT/midi_control_test"
     $CC -O1 -w -DFELUCCA_FM4=1 -Ibuild/gen -Ifirmware/src -o "$OUT/digital_test" tests/digital_test.c -lm

@@ -162,7 +162,8 @@ static uint32_t ed_step_sig(const step_t *s)
     return ((uint32_t)s->note[0] | (uint32_t)s->note[1] << 7 | (uint32_t)s->note[2] << 14 | (uint32_t)s->note[3] << 21) ^
            ((uint32_t)s->n << 28) ^ ((uint32_t)s->time * 0x9E3779B1u) ^ ((uint32_t)s->flags * 0x85EBCA6Bu) ^
            ((uint32_t)s->vel * 0xC2B2AE35u) ^ ((uint32_t)(s->hit | s->acc << 8) * 0x27D4EB2Fu) ^ ((uint32_t)s->probability * 0x165667B1u) ^
-           ((uint32_t)(s->cond | (uint8_t)s->nudge << 8) * 0x9E3779B9u);   /* ((Skiff W1) COND, NUDGE too) */
+           ((uint32_t)(s->cond | (uint8_t)s->nudge << 8) * 0x9E3779B9u) ^   /* ((Skiff W1) COND, NUDGE too) */
+           ((uint32_t)(s->nmode[0] | s->nmode[1] << 8) * 0x7FEB352Du);     /* ((PERNOTE) the note modes too) */
 }
 static void ed_shadow(void)                              /* the editor is in sync */
 {
@@ -309,6 +310,11 @@ static const param_desc_t *ed_desc(uint32_t scope, uint32_t id, int16_t **vp)
  * 8 bytes (an editor of before the grid): the hits stay; without the chance, the ratchet or the rest the step keeps
  * its own (flags carry accent and slide only). (Skiff W1) The ratchet is set only when it changes: an editor of
  * before writes x1 back on a FLAM step, which kept its FLAM no longer */
+/* (PERNOTE) a step's 2 note-mode bytes valid: each 3-bit field one of NM_* (bit 6 clear) */
+static int ed_nm_ok(const uint8_t *b)
+{
+    return (b[0] & 7u) < NM_COUNT && (b[0] >> 3) < NM_COUNT && (b[1] & 7u) < NM_COUNT && (b[1] >> 3) < NM_COUNT;
+}
 static void ed_step_put(step_t *st, const uint8_t *a, uint32_t na)
 {
     uint32_t i;
@@ -332,9 +338,15 @@ static void ed_step_put(step_t *st, const uint8_t *a, uint32_t na)
         st->cond = (uint8_t)(a[14] < TC_COUNT ? a[14] : 0u);
         st->nudge = (int8_t)((a[15] > 63u ? 63 : (int32_t)a[15]) - 32);
     }
+    if (na >= 18u) {                                  /* (PERNOTE, INFO 6E 01 05) the notes' own modes: m0 | m1 << 3, */
+        nm_clear(st);                                 /* m2 | m3 << 3 (an editor of before: the step keeps its own) */
+        for (i = 0; i < 4u; i++)
+            nm_set(st, i, (a[16u + i / 2u] >> ((i & 1u) * 3u)) & 7u);
+    }
+    nm_fit(st);                                       /* ((PERNOTE) a mode for notes 0 .. n-1 only) */
     ui.force = 1;
 }
-static void ed_step_reply(const step_t *st)              /* the same 13 bytes */
+static void ed_step_reply(const step_t *st)              /* the same bytes ((PERNOTE) 18: the note modes last) */
 {
     uint32_t i;
     ed_b(st->n);
@@ -351,6 +363,8 @@ static void ed_step_reply(const step_t *st)              /* the same 13 bytes */
     ed_b((st->flags & SF_FLAM) != 0u);                   /* (Skiff W1, INFO 43 01) FLAM, COND, NUDGE + 32 */
     ed_b(st->cond % TC_COUNT);
     ed_b((uint32_t)(st->nudge + 32) & 63u);
+    ed_b(nm_get(st, 0) | nm_get(st, 1) << 3);            /* (PERNOTE, INFO 6E 01 05) the notes' own modes */
+    ed_b(nm_get(st, 2) | nm_get(st, 3) << 3);
 }
 
 /* a flash write from the editor while the transport runs: stop it first (the erase silences the audio and
@@ -426,7 +440,9 @@ static int ed_args_ok(uint32_t cmd, const uint8_t *a, uint32_t n)
         return n == 9u || n == 12u || (n == 13u && a[12] <= 100u) ||               /* notes only, or the complete grid extension, */
                (n == 14u && a[12] <= 100u && a[13] >= 1u && a[13] <= 4u) ||     /* its chance, its ratchet, */
                (n == 17u && a[12] <= 100u && a[13] >= 1u && a[13] <= 4u && a[14] <= 1u && a[15] < TC_COUNT &&
-                a[16] <= 63u);                                                   /* (Skiff W1) FLAM, COND, NUDGE */
+                a[16] <= 63u) ||                                                 /* (Skiff W1) FLAM, COND, NUDGE */
+               (n == 19u && a[12] <= 100u && a[13] >= 1u && a[13] <= 4u && a[14] <= 1u && a[15] < TC_COUNT &&
+                a[16] <= 63u && ed_nm_ok(a + 17));                               /* (PERNOTE) the note modes */
     case ED_TRACK:
         return n <= 1u;
     case ED_TRACK_MIX:
@@ -435,7 +451,9 @@ static int ed_args_ok(uint32_t cmd, const uint8_t *a, uint32_t n)
         return n == 2u || n == 10u || n == 13u || (n == 14u && a[13] <= 100u) ||
                (n == 15u && a[13] <= 100u && a[14] >= 1u && a[14] <= 4u) ||
                (n == 18u && a[13] <= 100u && a[14] >= 1u && a[14] <= 4u && a[15] <= 1u && a[16] < TC_COUNT &&
-                a[17] <= 63u);
+                a[17] <= 63u) ||
+               (n == 20u && a[13] <= 100u && a[14] >= 1u && a[14] <= 4u && a[15] <= 1u && a[16] < TC_COUNT &&
+                a[17] <= 63u && ed_nm_ok(a + 18));                               /* (PERNOTE) the note modes */
     case ED_MOTION:
         return (n == 1u || (n == 2u && (a[1] == 2u || a[1] == 7u)) || (n == 3u && a[1] == 1u && a[2] <= 1u) ||
                 (n == 6u && (a[1] == 3u || a[1] == 5u)) || (n == 4u && a[1] == 4u) || (n == 3u && a[1] == 6u)) &&
@@ -521,6 +539,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(0x49); ed_b(1); ed_b(P_COUNT & 127u); ed_b(P_COUNT >> 7); ed_b(P_E0 & 127u); ed_b(P_E0 >> 7);   /* (Skiff 1.3)
                                          * wide ids: P_COUNT and P_E0 in two bytes; a track id from 128 on as scope 2
                                          * (ED_TID), a motion record's from 128 on with bit 6 of its step byte */
+        ed_b(0x6E); ed_b(1); ed_b(NM_COUNT);   /* (PERNOTE, fork 1.3.3-notes) each note's own mode (NM_COUNT values):
+                                                * 2 more bytes after a step's NUDGE (ed_step_put, ed_step_reply) */
         break;
     case ED_GET:
     case ED_SET:

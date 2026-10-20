@@ -174,6 +174,8 @@ static void step_to_grid(step_t *s)
     }
     for (i = k; i < 4u; i++)
         s->note[i] = 0;
+    if (k != s->n)
+        nm_clear(s);                                /* ((PERNOTE) its notes moved: their own modes go) */
     s->n = (uint8_t)k;
     if (!k && (s->flags & SF_ACCENT)) {
         s->acc |= s->hit;

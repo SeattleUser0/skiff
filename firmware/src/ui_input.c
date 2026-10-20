@@ -214,8 +214,8 @@ static uint32_t midi_leds(const track_t *t)
 static uint32_t play_leds(void)
 {
     const track_t *t = TSEL;
-    uint8_t s[4 + NLANE + 4];
-    uint32_t n = t->seq_n < 4u + NLANE ? t->seq_n : 4u + NLANE, i, k, note, used = 0, m = 0, hit;
+    uint8_t s[8 + NLANE + 4];                           /* ((PERNOTE) seq_notes holds 8 + NLANE) */
+    uint32_t n = t->seq_n < 8u + NLANE ? t->seq_n : 8u + NLANE, i, k, note, used = 0, m = 0, hit;
     for (i = 0; i < n; i++)
         s[i] = t->seq_notes[i];
     if (t->arp_note)
@@ -704,6 +704,7 @@ static void step_edit(uint32_t slot, int32_t steps)
             st->note[0] = last_note;
             st->n = 1;
             st->time = ST_NOTE;
+            nm_clear(st);                                 /* ((PERNOTE) a new note: no mode) */
             break;
         }
         for (i = 0; i < st->n; i++)
@@ -1055,17 +1056,21 @@ static void seq_entry(uint32_t pressed)
             follow_hold();                                /* ((1.3) the roll stays on the step entered) */
             st->n = 0;
             st->time = ST_NOTE;
+            nm_clear(st);                                 /* ((PERNOTE) entered anew: no note modes) */
         }
         n = chord_make(t, note, ch, &r, &mask);        /* (CHRD OFF, a kit: the note alone; MONO: the root) */
         if (t->p[P_VOICE] && !ENGINES[t->engine]->oneshot) {   /* (drums: hits stack as a chord) */
             st->note[0] = ch[0];
             st->n = 1;
+            nm_fit(st);                                   /* ((PERNOTE) the one note keeps note 1's mode) */
         } else {
             for (i = 0; i < n && st->n < 4u; i++) {
                 for (j = 0; j < st->n && st->note[j] != ch[i]; j++)
                     ;
-                if (j == st->n)
+                if (j == st->n) {
+                    nm_set(st, st->n, NM_NONE);           /* ((PERNOTE) a new note: no mode) */
                     st->note[st->n++] = ch[i];
+                }
             }
         }
         last_note = (uint8_t)note;

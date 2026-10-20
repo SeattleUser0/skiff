@@ -1077,6 +1077,7 @@ static void proj_steps(step_t *s)            /* a loaded sequence stays inside i
         if (s[i].time > ST_REST) s[i].time = ST_REST;
         for (j = 0; j < 4u; j++) s[i].note[j] &= 127u;
         s[i].acc &= s[i].hit;
+        nm_fit(&s[i]);                          /* ((PERNOTE) a mode for notes 0 .. n-1 only, each NM_*) */
     }
 }
 

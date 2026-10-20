@@ -190,7 +190,8 @@ static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
             (a[1] >= 2u && a[1] <= 5u && len && !proj_store_len(len)) ||
             ((a[1] == 6u || a[1] == 7u) && len && len != sizeof(up_bank_t)) ||
             (a[1] == 8u && len && len != sizeof(fm6_bank_t)) || (a[1] == 9u && len && len != sizeof(upf_t)) ||
-            (ED_BK_BANK(a[1]) && len && len != BK_LEN)) return 1;
+            (ED_BK_BANK(a[1]) && len && len != BK_LEN && len != BK_LEN1)) return 1;   /* ((PERNOTE) an earlier
+                                                                                    * build's 3552-byte chunk too) */
         if (ed_flash_stop()) return 3;
         ed_bk_valid = 0; ed_bk_put = 1; ed_bk_id = a[1]; ed_bk_len = len; ed_bk_gen = ++proj_wire_gen;
         ed_bk_crc = ed_bk_r32(a + 7); ed_bk_pos = 0;
