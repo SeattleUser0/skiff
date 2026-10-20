@@ -946,13 +946,13 @@ static int seq_carries(const track_t *t, uint32_t note)
 static uint32_t seq_held(const track_t *t)
 {
     uint32_t all = t->seq_n >= 16u ? 0xFFFFu : (1u << t->seq_n) - 1u;
-    return (t->seq_hold ? all : t->seq_keep) & all;
+    return (t->seq_hold ? all & ~(uint32_t)t->seq_thru : t->seq_keep) & all;   /* ((rev 2) a tie rung through: not again) */
 }
 /* (PERNOTE) seq_notes keeps only the notes of bit mask `stay` (the others: note-off unless `off` is 0), in order;
  * their masks move with them, then are cleared if `clear` */
 static void seq_keep_only(track_t *t, uint32_t stay, int off, int clear)
 {
-    uint32_t i, k = 0, keep = 0, sld = 0, tie = 0;
+    uint32_t i, k = 0, keep = 0, sld = 0, tie = 0, thru = 0;
     for (i = 0; i < t->seq_n; i++) {
         if (!((stay >> i) & 1u)) {
             if (off)
@@ -962,22 +962,26 @@ static void seq_keep_only(track_t *t, uint32_t stay, int off, int clear)
         keep |= ((t->seq_keep >> i) & 1u) << k;
         sld |= ((t->seq_sld >> i) & 1u) << k;
         tie |= ((t->seq_tie >> i) & 1u) << k;
+        thru |= ((t->seq_thru >> i) & 1u) << k;
         t->seq_notes[k++] = t->seq_notes[i];
     }
     t->seq_n = (uint8_t)k;
     t->seq_keep = (uint16_t)(clear ? 0u : keep);
     t->seq_sld = (uint16_t)(clear ? 0u : sld);
     t->seq_tie = (uint16_t)(clear ? 0u : tie);
+    t->seq_thru = (uint16_t)(clear ? 0u : thru);
 }
 /* (PERNOTE) the gate of the step played last is over: its notes end, but those held into the next step (seq_keep: a
  * note's TIE or SLD) while the transport plays. All of them end with none held, as seq_release did before */
 static void seq_gate_end(track_t *t)
 {
-    if (!song.playing || !t->seq_keep) {
+    /* ((rev 2) a tie rung into a ratchet or FLAM step stays to its last part's gate: rat_left, parts still to come) */
+    uint32_t stay = (uint32_t)t->seq_keep | (t->rat_left ? (uint32_t)t->seq_thru : 0u);
+    if (!song.playing || !stay) {
         seq_release(t);
         return;
     }
-    seq_keep_only(t, t->seq_keep, 1, 0);
+    seq_keep_only(t, stay, 1, 0);
 }
 /* (PERNOTE) a step that plays no notes (REST, empty, its CHANCE failed): every seq note ends, but on a POLY track
  * those a note's TIE holds into it ring on to its gate (SPEC-PERNOTE.md "Tie holds one more step") */
@@ -992,6 +996,7 @@ static void seq_rest(track_t *t, uint32_t gate)
         return;
     }
     seq_keep_only(t, tie, 1, 1);
+    t->seq_thru = (uint16_t)((1u << t->seq_n) - 1u);   /* ((rev 2) ringing through: spent) */
     t->seq_hold = 0;
     t->seq_off = gate;
 }
@@ -1050,7 +1055,7 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
         if (t->seq_n) {
             t->seq_off = gate + period / 2u;
             t->seq_hold = (s->flags & SF_SLIDE) != 0 || next_tie;   /* chains hold at any GATE / swing */
-            t->seq_keep = t->seq_sld = t->seq_tie = 0;   /* ((PERNOTE) the TIE step holds them all: their own TIE or
+            t->seq_keep = t->seq_sld = t->seq_tie = t->seq_thru = 0;   /* ((PERNOTE) the TIE step holds them all: their own TIE or
                                                           * SLD is spent, they end at its gate unless it holds on) */
         }
         return;
@@ -1127,23 +1132,27 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
             for (i = 0; i < m; i++)
                 if (!((sk >> i) & 1u))
                     t->seq_notes[t->seq_n++] = nn[i];
-            t->seq_keep = t->seq_sld = t->seq_tie = 0;
+            t->seq_keep = t->seq_sld = t->seq_tie = t->seq_thru = 0;
             t->seq_off = gate;
             t->seq_hold = out_ok && ((s->flags & SF_SLIDE) != 0 || next_tie || own_out);
             return;
         }
         {
             /* POLY (SPEC-PERNOTE.md "Playback"): the notes held into this step (held: a step SLIDE or a TIE next held
-             * them all, else each its own TIE or SLD; a ratchet repeat holds none) meet this step's notes:
+             * them all, else each its own TIE or SLD; a ratchet's or FLAM's repeat holds only a tie ringing through it)
+             * meet this step's notes:
              *   1 the same pitch carries (SLIDE HOLD): no note-on, its voice goes on;
-             *   2 a sliding one (SLD) glides to the closest pitch not taken (the lower on a tie), in their order;
-             *   3 a tied one (TIE) not met sounds on through this step, to its gate; the others end here;
-             *   4 the notes of this step not met strike.
+             *   2 those not held end (a long GATE's, a NUDGE's: before anything glides, (rev 2));
+             *   3 a sliding one (SLD) glides to the closest free pitch (the lower on a tie), in their order;
+             *   4 a tied one (TIE) not met sounds on through this step, to its gate; the others end here;
+             *   5 the notes of this step not met strike.
              * Releases before strikes (a pitch ended and struck again restarts, as before) */
             uint8_t pn[8 + NLANE];
-            uint32_t pc = t->seq_n, held = (skip & SEQ_REP) ? 0u : seq_held(t), psld = t->seq_sld, ptie = t->seq_tie;
+            uint32_t pc = t->seq_n, all = pc >= 16u ? 0xFFFFu : (1u << pc) - 1u;
+            uint32_t held = (skip & SEQ_REP) ? (uint32_t)t->seq_thru & all : seq_held(t);
+            uint32_t psld = t->seq_sld, ptie = t->seq_tie | t->seq_thru;
             uint32_t claimed = 0, met = 0, through = 0, k, glide_ok = !(e->keys && e->keys(t, 0) >= 0);
-            uint32_t keep = 0, sld = 0, tie = 0, n2 = 0;
+            uint32_t keep = 0, sld = 0, tie = 0, thru = 0, n2 = 0;
             for (k = 0; k < pc; k++)
                 pn[k] = t->seq_notes[k];
             for (i = 0; i < m; i++) {               /* 1 the same pitch carries */
@@ -1156,7 +1165,10 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
                         break;
                     }
             }
-            if (glide_ok)                           /* 2 a slide glides */
+            for (k = 0; k < pc; k++)                /* 2 not held: they end now */
+                if (!(((held | claimed) >> k) & 1u))
+                    trk_note_off(t, pn[k]);
+            if (glide_ok)                           /* 3 a slide glides */
                 for (k = 0; k < pc; k++) {
                     uint32_t best = m, bd = 0;
                     if (!(((held & psld & ~claimed) >> k) & 1u) || !seq_gated(t, pn[k]))
@@ -1175,20 +1187,20 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
                         met |= 1u << best;
                     }
                 }
-            for (k = 0; k < pc; k++) {              /* 3 the rest: a tie rings through, the others end */
-                if ((claimed >> k) & 1u)
+            for (k = 0; k < pc; k++) {              /* 4 the held rest: a tie rings through, the others end */
+                if (((claimed >> k) & 1u) || !((held >> k) & 1u))
                     continue;
-                if (((held & ptie) >> k) & 1u && seq_gated(t, pn[k])) {
+                if (((ptie >> k) & 1u) && seq_gated(t, pn[k])) {
                     through |= 1u << k;
                     continue;
                 }
                 for (i = 0; i < m && !(((sk >> i) & 1u) && nn[i] == pn[k]); i++)
                     ;
-                if (((held >> k) & 1u) && i < m)
+                if (i < m)
                     continue;                       /* (live recording sounds that pitch already: left alone) */
                 trk_note_off(t, pn[k]);
             }
-            for (i = 0; i < m; i++)                 /* 4 the new ones strike */
+            for (i = 0; i < m; i++)                 /* 5 the new ones strike */
                 if (!(((sk | met) >> i) & 1u))
                     trk_note_on(t, nn[i], vv[i]);
             for (i = 0; i < m; i++) {               /* what sounds now, and what each holds out */
@@ -1203,12 +1215,15 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
                 t->seq_notes[n2++] = nn[i];
             }
             for (k = 0; k < pc && n2 < sizeof t->seq_notes; k++)   /* the tied-through ones: to this gate */
-                if ((through >> k) & 1u)
+                if ((through >> k) & 1u) {
+                    thru |= 1u << n2;
                     t->seq_notes[n2++] = pn[k];
+                }
             t->seq_n = (uint8_t)n2;
             t->seq_keep = (uint16_t)keep;
             t->seq_sld = (uint16_t)sld;
             t->seq_tie = (uint16_t)tie;
+            t->seq_thru = (uint16_t)thru;
             t->seq_off = gate;
             /* next step a TIE, or this one's SLIDE: keep them all to it (as before) */
             t->seq_hold = out_ok && ((s->flags & SF_SLIDE) != 0 || next_tie);

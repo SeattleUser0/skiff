@@ -471,8 +471,9 @@ static int torn(void)
     bank_put(0, 2, 0);                            /* the copy before: C, pattern 01 (ids 0..3's chunk) */
     rich(0, 9);
     snap(&c, 0);
-    for (n = 0; n <= (int)((BK_LEN + 255u) / 256u); n++) {   /* the power goes after n writes: the payload's pages, the
-                                                              * header ((PERNOTE) each page, before the header) */
+    for (n = 0; n <= (int)((BK_LEN1 + 255u) / 256u); n++) {   /* the power goes after n writes: the payload's pages, the
+                                                               * header ((PERNOTE, rev 2) no note modes: the chunk is
+                                                               * written at 3552, as before) */
         rich(0, 9);
         fail_after = n;
         ok &= bank_put(0, 2, 0) != 0;
@@ -1266,7 +1267,7 @@ static int pernote_bank(void)
         ok = len == BK_LEN;
         memcpy(back, p, BK_LEN);
         ok &= bank_chunk_ok(back, BK_LEN) && bank_chunk_ok(old, BK_LEN1) && !bank_chunk_ok(old, 1000u);
-        ok &= bank_restore(ch, old, BK_LEN1) == 0 && bk.leg[ch] == 0u;
+        ok &= bank_restore(ch, old, BK_LEN1) == 0 && bk.leg[ch] == 1u;   /* ((rev 2) no modes: written at 3552) */
         detach(2);
         ok &= ent_go(2, 3) == 0;
         snap(&b, 2);
@@ -1274,6 +1275,44 @@ static int pernote_bank(void)
         old[id % BK_PER * BK_REC1] = BK_VER3;
         ok &= !bank_chunk_ok(old, BK_LEN1);
         bad += check("  backups: read out at 3840; an earlier build's 3552 restores; none holds version 3 at 888", ok);
+    }
+    {   /* (rev 2) a chunk holding no note modes is written as earlier builds write it (3552, 888 apart): stock Skiff keeps
+         * reading it; one with modes at 3840; a save of either torn after any page leaves the chunk as it was */
+        int n;
+        fresh();
+        rich(0, 4);
+        snap(&a, 0);
+        ok = bank_put(0, 0, 0) == 0 && bk.leg[bk_chunk(ent_pat(0, 0))] == 1u;
+        {
+            bk_hdr_t h;
+            ok &= bk_head(bk.sect[bk_chunk(ent_pat(0, 0))] - 1u, &h) == 0 && h.len == BK_LEN1;
+        }
+        detach(0);
+        ok &= ent_go(0, 0) == 0;
+        snap(&b, 0);
+        bad += check("  (rev 2) no modes in the chunk: written at 3552 (stock Skiff reads it), back whole", ok && same(&a, &b));
+        modes_on(0, 2);
+        snap(&c, 0);
+        ok = 1;
+        for (n = 0; n <= (int)((BK_LEN + 255u) / 256u); n++) {   /* every page of a 3840 save, then the header */
+            modes_on(0, 2);
+            fail_after = n;
+            ok &= bank_put(0, 0, 0) != 0;
+            fail_after = -1;
+            power_cycle();
+            detach(0);
+            ok &= ent_go(0, 0) == 0;
+            snap(&b, 0);
+            ok &= same(&a, &b);
+        }
+        modes_on(0, 2);
+        ok &= bank_put(0, 0, 0) == 0 && bk.leg[bk_chunk(ent_pat(0, 0))] == 0u;
+        power_cycle();
+        detach(0);
+        ok &= ent_go(0, 0) == 0;
+        snap(&b, 0);
+        bad += check("  (rev 2) a save with modes torn after any page: the 3552 copy as it was; whole: 3840, the modes back",
+                     ok && same(&c, &b));
     }
     return bad;
 }

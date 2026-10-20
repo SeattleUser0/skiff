@@ -2,6 +2,9 @@
 
 Fork: SeattleUser0/skiff, on Skiff 1.3.3. Release name: 1.3.3-notes.
 Rev 1, 2026-10-19: first version.
+Rev 2, 2026-10-19: after an independent review. A tie into a ratchet or FLAM step lasts to that step's gate; a tie
+rung through a step is never held on by that step's SLIDE; nothing held over ends after a glide lands on its pitch;
+chunks without note modes are written in the old size; the web editor's fallback is the old text box.
 
 ## What it is
 
@@ -38,7 +41,9 @@ pluck or strike.
    the rest end. It never glides on a POLY track.
 5. **Everything else** plays as in Skiff 1.3.3: notes not held end at their gate, new notes strike.
 6. **Ratchets and FLAM** never tie or slide out (as Skiff already does for the step SLIDE). A ratchet's repeats strike
-   every note again.
+   every note again. A note tied into a ratchet or FLAM step rings through all its parts and ends at the last part's
+   gate.
+6a. **A tie is spent after its one extra step.** A step SLIDE on the step it rings through does not carry it further.
 7. **A held note whose voice was stolen** by another track is struck again in the next step, not left silent.
 
 ## Other voice modes and engines
@@ -75,11 +80,13 @@ A new SEQ page after ROLL, on synth tracks (not drum tracks, as ROLL). It shows 
   the step's meta byte. To free that bit, a version 3 meta byte stores n and TIME together (n x 3 + TIME, 0..14) in
   bits 0..3 and the step flags in bits 4..5; bit 7 is FLAM as before. Version 3 motion is version 2's.
 - A chunk written by any earlier build (3552 bytes) still loads: its patterns read as before, with no note modes.
-  A chunk is written in the new size the next time it is saved.
+- A chunk is written in the new size (3840) only when one of its 4 patterns holds a note mode. Otherwise it is
+  written at 3552, exactly as earlier builds write it.
 - Backups: a chunk object is 3840 bytes; a backup from an earlier build (3552-byte chunks) restores.
 - Projects (SKF3) hold no steps (the pool does) and do not change. User presets hold no pattern and do not change.
-- Stock Skiff reads a version 3 record as an empty pattern, and refuses a 3840-byte chunk (it keeps the copy it
-  had). Going back to stock Skiff: patterns saved with note modes are not there.
+- Going back to stock Skiff: chunks without note modes read as always. A chunk with note modes (3840) is refused by
+  stock Skiff, so all 4 patterns of that chunk (patterns 1-4, 5-8, and so on) are missing there, and stock Skiff may
+  reuse its sector. Clear the note modes (or back up with this build's editor) before going back.
 
 ## Editor (SysEx)
 
@@ -97,4 +104,4 @@ A new SEQ page after ROLL, on synth tracks (not drum tracks, as ROLL). It shows 
   clearing a cell's pitch removes that note.
 - The step's own ACC and SLIDE boxes stay.
 - The step grid marks a note's mode after it: `>` ACC, `~` SLD, `>~` A+S, `_` TIE.
-- An editor connected to firmware without the `6E` tag shows the cells without the mode menus.
+- An editor connected to firmware without the `6E` tag shows the old NOTES text box.

@@ -1,6 +1,6 @@
 # Per-note step modes: build status
 
-Spec: SPEC-PERNOTE.md. Rev 1, 2026-10-19.
+Spec: SPEC-PERNOTE.md. Rev 2, 2026-10-19 (after an independent review of rev 1).
 
 ## Done
 
@@ -25,6 +25,9 @@ Spec: SPEC-PERNOTE.md. Rev 1, 2026-10-19.
 - Tests: tests/pernote_test.c (playback, NOTES page), tests/bank_test.c pernote_bank, tests/editor_test.c, the
   ui_render scenes notes_modes / notes_empty, web/test_web.mjs editorNoteModes; existing tests updated for the
   bigger records, the 2 reply bytes, INFO's last tag and the SEQ page order.
+- Rev 2 (review fixes): seq_thru mask (a tie rung through: kept through a ratchet's or FLAM's parts, never held on by a
+  step SLIDE); POLY playback releases notes not held before any glide; bk_write writes a chunk without note modes at
+  3552 (bk_squeeze); tests for each in tests/pernote_test.c review() and tests/bank_test.c pernote_bank().
 - .github/workflows/release.yml: version 1.3.3-notes; a GitHub Pages job with the fork's installer and editor
   (tools/fork_site.py).
 

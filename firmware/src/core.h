@@ -466,6 +466,9 @@ typedef struct track {
                                   * NM_SLD; seq_hold holds them all) */
     uint16_t seq_sld;            /* (PERNOTE) bit i: seq_notes[i] slides (NM_SLD / NM_AS): it may glide in the next step */
     uint16_t seq_tie;            /* (PERNOTE) bit i: seq_notes[i] is tied (NM_TIE): it sounds through the next step */
+    uint16_t seq_thru;           /* (PERNOTE, rev 2) bit i: seq_notes[i] is a tied note ringing through this step (its
+                                  * TIE spent): it ends at this step's gate (a ratchet's: its last part's), never held on
+                                  * by a step SLIDE */
     uint8_t seq_hold;            /* last step slides: keep the notes until the next step */
     uint8_t slide_glide;         /* next legato note glides (slide) */
     uint8_t rat_left;            /* RATCH: repeats of the playing step still to come (seq.c seq_ratchet) */

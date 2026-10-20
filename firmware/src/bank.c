@@ -208,33 +208,55 @@ static uint32_t bk_free(void)                      /* a sector holding no chunk'
     }
     return BK_NONE;
 }
-/* bk_buf -> chunk c's next copy, the commit record last, then read back: 0 written */
+/* (PERNOTE, rev 2) bk_buf's 4 records squeezed to 888 apart, as every earlier build writes a chunk (their planes are 0:
+ * none is version 3); bk_spread undoes it */
+static void bk_squeeze(uint8_t *b)
+{
+    uint32_t r;
+    for (r = 1; r < BK_PER; r++)
+        memmove(b + r * BK_REC1, b + r * BK_REC, BK_REC1);
+}
+/* bk_buf -> chunk c's next copy, the commit record last, then read back: 0 written. ((PERNOTE, rev 2) A chunk none of
+ * whose records is version 3 is written as earlier builds write it, 3552 bytes: stock Skiff and 1.3.3-hold keep
+ * reading it. Only a chunk holding note modes is written at 3840) */
 static int bk_write(uint32_t c)
 {
-    uint32_t to = bk_free(), base, off;
+    uint32_t to = bk_free(), base, off, r, len = BK_LEN1;
     bk_hdr_t h, chk;
     int rc;
     if (to == BK_NONE)
         return -1;
+    for (r = 0; r < BK_PER; r++)
+        if (bk_buf[r * BK_REC] == BK_VER3)
+            len = BK_LEN;
     base = bk_sector(to);
     if ((rc = bk_erase(base)) != 0)
         return rc;
-    for (off = 0; off < BK_LEN; off += 256u)
-        if ((rc = bk_prog(base + 256u + off, bk_buf + off, BK_LEN - off > 256u ? 256u : BK_LEN - off)) != 0)
+    if (len == BK_LEN1)
+        bk_squeeze(bk_buf);                        /* (spread out again by the read back: bk_body) */
+    for (off = 0; off < len; off += 256u)
+        if ((rc = bk_prog(base + 256u + off, bk_buf + off, len - off > 256u ? 256u : len - off)) != 0) {
+            if (len == BK_LEN1)
+                bk_spread(bk_buf);                 /* (bk_buf as it was: the caller's) */
             return rc;
+        }
     h.magic = BK_MAGIC;
     h.chunk = c;
     h.seq = bk.top + 1u;
-    h.len = BK_LEN;
-    h.sum = proj_hash(bk_buf, BK_LEN);
+    h.len = len;
+    h.sum = proj_hash(bk_buf, len);
     h.rsv[0] = h.rsv[1] = 0xFFFFFFFFu;
     h.hsum = proj_hash(&h, sizeof h - 4u);
-    if ((rc = bk_prog(base, &h, sizeof h)) != 0)
+    if ((rc = bk_prog(base, &h, sizeof h)) != 0) {
+        if (len == BK_LEN1)
+            bk_spread(bk_buf);
         return rc;
+    }
     if (bk_head(to, &chk) || memcmp(&chk, &h, sizeof h) || bk_body(to, &chk))
-        return -7;                                 /* (a part that does not keep what it is given: not SAVED) */
+        return -7;                                 /* (a part that does not keep what it is given: not SAVED; bk_buf is
+                                                    * scratch then, every caller reads the chunk again first) */
     bk.sect[c] = (uint8_t)(to + 1u);
-    bk.leg[c] = 0;                                 /* ((PERNOTE) written in the new size) */
+    bk.leg[c] = len == BK_LEN1;                    /* ((PERNOTE, rev 2) the size it was written in) */
     bk.top = h.seq;
     bk.next = (uint8_t)((to + 1u) % BK_NSECT);
     bk.gen++;

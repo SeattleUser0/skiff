@@ -339,9 +339,80 @@ static int notes_ui(void)
     return bad;
 }
 
+/* (rev 2, from the review) a tie rung into a FLAM or a ratchet step stays to that step's gate, not its first part's; a
+ * tie rung through a step with SLIDE ends there (never carried a third step); a glide onto a pitch whose note was still
+ * listed (a long GATE, a NUDGE early) is not cut by that note's end */
+static uint32_t to_e(track_t *t, uint32_t idx, uint32_t e)   /* to e eighths into step idx */
+{
+    uint32_t target = 0, k, v0 = vage;
+    for (k = 0; k < idx; k++)
+        target += slen(t, k % (uint32_t)t->p[P_SLEN]);
+    target += slen(t, idx % (uint32_t)t->p[P_SLEN]) * e / 8u;
+    while (blk * CTL < target) {
+        seq_tick(t, CTL);
+        blk++;
+    }
+    return vage - v0;
+}
+static int review(void)
+{
+    int bad = 0, ok;
+    track_t *t;
+    int vc;
+    uint32_t n;
+    t = pn_track(4, V_POLY);
+    put(t, 0, (const uint8_t[]){C4}, 1, (const uint8_t[]){NM_TIE}, 0);
+    put(t, 1, (const uint8_t[]){G4}, 1, 0, 0);
+    step_set_rflam(&t->step[1], 5u);
+    go();
+    to_e(t, 0, 2);
+    vc = vox(t, C4);
+    to_e(t, 1, 3);
+    ok = vc >= 0 && vox(t, C4) == vc;
+    to_e(t, 1, 7);
+    bad += check("(rev 2) TIE into a FLAM step: still sounding past the full hit, ended at the step's gate",
+                 ok && vox(t, C4) < 0);
+    t = pn_track(4, V_POLY);
+    put(t, 0, (const uint8_t[]){C4}, 1, (const uint8_t[]){NM_TIE}, 0);
+    put(t, 1, (const uint8_t[]){G4}, 1, 0, 0);
+    step_set_ratchet(&t->step[1], 2u);
+    go();
+    to_e(t, 0, 2);
+    vc = vox(t, C4);
+    to_e(t, 1, 3);                                /* past the first part's gate (2 / 8) */
+    ok = vc >= 0 && vox(t, C4) == vc;
+    to_e(t, 1, 5);                                /* the second part playing */
+    ok &= vox(t, C4) == vc;
+    to_e(t, 1, 7);                                /* past its gate (6 / 8) */
+    bad += check("(rev 2) TIE into a ratchet x2: through both parts, ended at the last one's gate", ok && vox(t, C4) < 0);
+    t = pn_track(4, V_POLY);
+    put(t, 0, (const uint8_t[]){C4}, 1, (const uint8_t[]){NM_TIE}, 0);
+    put(t, 1, (const uint8_t[]){G4}, 1, 0, SF_SLIDE);
+    put(t, 2, (const uint8_t[]){C4, E4}, 2, 0, 0);
+    go();
+    to_e(t, 1, 2);
+    n = to_e(t, 2, 2);
+    bad += check("(rev 2) TIE rung through a SLIDE step: not carried a third step (C struck again there)",
+                 n == 2u && vox(t, C4) >= 0 && vox(t, E4) >= 0);
+    t = pn_track(4, V_POLY);
+    t->p[P_SGATE] = 127;
+    put(t, 0, (const uint8_t[]){C4, E4}, 2, (const uint8_t[]){NM_SLD, NM_NONE}, 0);
+    put(t, 1, (const uint8_t[]){E4}, 1, 0, 0);
+    t->step[1].nudge = -16;
+    go();
+    to_e(t, 0, 2);
+    vc = vox(t, C4);
+    if (vox(t, E4) >= 0)
+        voice_kill(&t->v[vox(t, E4)]);            /* (as another track's steal would) */
+    to_e(t, 1, 2);
+    bad += check("(rev 2) a glide onto a pitch still listed (GATE 127, NUDGE early, its voice stolen): it sounds",
+                 vc >= 0 && vox(t, E4) == vc);
+    return bad;
+}
+
 int main(void)
 {
-    int bad = tie() + slide() + accent() + old() + others() + code() + notes_ui();
+    int bad = tie() + slide() + accent() + old() + others() + code() + notes_ui() + review();
     printf("%s\n", bad ? "PERNOTE TEST FAILED" : "pernote tests passed");
     return bad != 0;
 }

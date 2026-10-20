@@ -21,8 +21,9 @@ On a POLY track:
 To hold C and E while G comes and goes: step 1 C E G with C and E on TIE, step 2 G with nothing tied, then C and E
 again with TIE wherever they should keep going.
 
-Patterns saved with note modes use a new record version. Patterns saved before load as they were. Stock Skiff
-shows a pattern with note modes as empty, so keep a backup if you go back to it.
+Patterns saved before load as they were. Patterns are stored 4 to a block (1-4, 5-8, and so on). A block holding a
+pattern with note modes uses a bigger format that stock Skiff can't read, so going back to stock loses all 4 patterns
+in that block. Clear the note modes first, or keep a backup.
 
 Install the 1.3.3-notes package the same way as below (`skiff-1.3.3-notes.fwsc`).
 
