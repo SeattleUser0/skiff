@@ -1,6 +1,6 @@
 # Per-note step modes: build status
 
-Spec: SPEC-PERNOTE.md. Rev 2, 2026-10-19 (after an independent review of rev 1).
+Spec: SPEC-PERNOTE.md. Rev 6, 2026-10-19.
 
 ## Done
 
@@ -28,11 +28,13 @@ Spec: SPEC-PERNOTE.md. Rev 2, 2026-10-19 (after an independent review of rev 1).
 - Rev 2 (review fixes): seq_thru mask (a tie rung through: kept through a ratchet's or FLAM's parts, never held on by a
   step SLIDE); POLY playback releases notes not held before any glide; bk_write writes a chunk without note modes at
   3552 (bk_squeeze); tests for each in tests/pernote_test.c review() and tests/bank_test.c pernote_bank().
+- Rev 3: bank.c without memmove (the firmware's own libc has none: the first GitHub build failed on it).
 - Rev 5: the GitHub build overflowed the app's flash region (XIP, by 3092 B) and RAMTEXT (by 528 B). The build now
   leaves out the USB serial console (FELUCCA_CDC=0, a developer tool: MENU > USB SERIAL goes), the bigger note-mode
   helpers are out of line (core.h), and the undo ring moved from .ramx to .pool (ui.c).
 - Rev 6: .pool had no room (by 5796 B): the undo ring is back in .ramx with 7 copies, was 8 (ui.c UNDO_N).
-- Rev 3: bank.c without memmove (the firmware's own libc has none: the first GitHub build failed on it).
+  The GitHub build fits: image 577064 B (app flash region 581564 B), RAM .data+.bss 84660 of 98304 B, pool 348100
+  of 356352 B (the build wants 8 KiB spare: 8252), RAM code + .ramx 23348 of 24576 B. Little room is left in any.
 - .github/workflows/release.yml: version 1.3.3-notes; a GitHub Pages job with the fork's installer and editor
   (tools/fork_site.py).
 
